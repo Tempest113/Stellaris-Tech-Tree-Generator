@@ -20,6 +20,7 @@ from .errors import ClausewitzError, RoundtripError
 from .nodes import Block
 from .parser import parse, parse_file
 from .serializer import serialize
+from ..paths import SCRIPT_SUBDIRS
 
 #: Files that sit in ``common/`` but are prose, not script. Paradox ships
 #: developer notes alongside real data and they do not parse by design; see
@@ -35,14 +36,9 @@ NON_SCRIPT_FILENAMES = frozenset(
     }
 )
 
-#: The ``common/`` subdirectories the tech-tree pipeline actually reads. Used to
-#: scope the corpus sweep so unrelated engine data cannot fail the build.
-PIPELINE_SUBDIRS = (
-    "technology",
-    "scripted_variables",
-    "scripted_triggers",
-    "inline_scripts",
-)
+#: The ``common/`` subdirectories the tech-tree pipeline reads, as bare names.
+#: Derived from pipeline.paths so there is a single source of truth.
+PIPELINE_SUBDIRS = tuple(sub.split("/", 1)[1] for sub in SCRIPT_SUBDIRS)
 
 
 def check_roundtrip(text: str, *, path: str | None = None) -> Block:

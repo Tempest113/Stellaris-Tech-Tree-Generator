@@ -55,10 +55,14 @@ def main() -> int:
 
         state = "fetched" if result.fetched else "already current"
         print(f"  {state} at {result.short_commit} -> {result.path}")
+
+        # verify_layout appends its own notes, so run it before printing them.
+        problems = verify_layout(result)
         for note in result.notes:
             print(f"  note: {note}")
-        for problem in verify_layout(result):
+        for problem in problems:
             print(f"  WARNING: {problem}", file=sys.stderr)
+            failures += 1
 
     return 1 if failures else 0
 

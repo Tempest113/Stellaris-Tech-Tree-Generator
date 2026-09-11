@@ -15,17 +15,17 @@ needed directories fetches roughly 49 MB instead.
 from __future__ import annotations
 
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .paths import ICON_SUBDIRS, SOURCE_SUBDIRS
+
 #: Directories a tech-tree build actually reads from a mod. Anything else is
-#: artwork, audio or map data.
-DEFAULT_SPARSE_PATHS = (
-    "common",
-    "localisation",
-    "gfx/interface/icons/technologies",
-)
+#: artwork, audio or map data. Defined in pipeline.paths so the vendored set,
+#: the parse sweep and the asset scan cannot drift apart.
+DEFAULT_SPARSE_PATHS = SOURCE_SUBDIRS
 
 
 class VendorError(RuntimeError):
@@ -69,6 +69,24 @@ class VendorResult:
         return self.commit[:12]
 
 
+def _force_remove(path: Path) -> None:
+    """Delete a git checkout on Windows.
+
+    Git marks objects in ``.git/objects/pack`` read-only, and on Windows a
+    read-only file cannot be unlinked at all, so a plain rmtree fails with
+    "Access is denied". Clearing the flag and retrying is the standard fix.
+    """
+
+    def on_error(func, target, _exc_info):
+        try:
+            Path(target).chmod(stat.S_IWRITE)
+        except OSError:
+            raise
+        func(target)
+
+    shutil.rmtree(path, onerror=on_error)
+
+
 def _git(*args: str, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(
         ["git", *args],
@@ -104,6 +122,16 @@ def current_commit(path: Path) -> str | None:
     return result.stdout.strip() or None
 
 
+def current_sparse_paths(path: Path) -> tuple[str, ...]:
+    """Directories the vendored checkout is currently configured to materialise."""
+    if not (path / ".git").exists():
+        return ()
+    result = _git("sparse-checkout", "list", cwd=path, check=False)
+    if result.returncode != 0:
+        return ()
+    return tuple(sorted(line.strip().lstrip("/") for line in result.stdout.split() if line.strip()))
+
+
 def sync(
     source: GitSource,
     vendor_root: Path,
@@ -128,11 +156,17 @@ def sync(
             "Pin this in config for a reproducible build."
         )
 
-    if not force and current_commit(target) == wanted:
+    # A matching commit is not sufficient: the set of directories we want
+    # materialised may have grown since the last sync, in which case the
+    # working tree is missing files even though HEAD is correct.
+    sparse_matches = current_sparse_paths(target) == tuple(sorted(source.sparse_paths))
+    if not force and current_commit(target) == wanted and sparse_matches:
         return VendorResult(source, target, wanted, floating, fetched=False, notes=notes)
+    if not sparse_matches and current_commit(target) == wanted:
+        notes.append("sparse paths changed; re-materialising working tree")
 
     if force and target.exists():
-        shutil.rmtree(target)
+        _force_remove(target)
 
     target.mkdir(parents=True, exist_ok=True)
     if not (target / ".git").exists():
@@ -169,7 +203,13 @@ def sync(
 
 
 def verify_layout(result: VendorResult) -> list[str]:
-    """Sanity-check that a vendored source looks like a Stellaris mod."""
+    """Sanity-check that a vendored source looks like a Stellaris mod.
+
+    Icon directories are reported as notes rather than errors: a mod may
+    legitimately ship no technology art and inherit vanilla's, but a sparse
+    checkout that quietly failed to materialise them looks identical, so it is
+    worth saying out loud either way.
+    """
     problems: list[str] = []
     if not (result.path / "common").is_dir():
         problems.append(f"{result.source.key}: no common/ directory at {result.path}")
@@ -179,4 +219,11 @@ def verify_layout(result: VendorResult) -> list[str]:
             f"{result.source.key}: no descriptor.mod "
             "(add it to sparse_paths, or the repo root is not the mod root)"
         )
+    for subdir in ICON_SUBDIRS:
+        directory = result.path / subdir
+        if directory.is_dir():
+            count = len(list(directory.glob("*.dds")))
+            result.notes.append(f"{subdir}: {count} icons")
+        elif subdir in result.source.sparse_paths:
+            result.notes.append(f"{subdir}: not present in this source")
     return problems
