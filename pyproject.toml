@@ -1,0 +1,26 @@
+[project]
+name = "stellaris-tech-tree"
+version = "0.1.0"
+description = "Generate an interactive Stellaris technology tree from a local install and mod load order"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10",
+    "jsonschema>=4.20",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "corpus: needs a real Stellaris installation; skipped when none is found",
+]

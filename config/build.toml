@@ -1,0 +1,44 @@
+# Build configuration for the published Gigastructural Engineering tech tree.
+#
+# Nothing about Gigastructures is hard-coded in the pipeline. This file is the
+# only place the published build's identity lives; point it somewhere else and
+# the same pipeline produces a tree for a different load order.
+
+[game]
+# Auto-discovered through Steam by default. Set this, or the STELLARIS_PATH
+# environment variable, to override.
+# path = "C:/Program Files (x86)/Steam/steamapps/common/Stellaris"
+
+[build]
+vendor_root = "vendor"
+output_root = "build"
+language = "english"
+
+# --- Load order, applied over the base game in the order listed -------------
+
+[[sources]]
+key = "gigas"
+name = "Gigastructural Engineering & More"
+kind = "git"
+repo = "https://github.com/Pouchkinn-s-Gigastructures/Gigastructures.git"
+# Live-Branch is the branch that matches the published Steam Workshop release.
+# A local Workshop copy is not a reproducible input: it can be stale, and a
+# maintainer's copy may sit on a feature branch or carry work in progress.
+ref = "Live-Branch"
+commit = "4f7d3a1fa8ccdcf503820345958d181283bfa65d"
+
+# --- Reference-only sources -------------------------------------------------
+#
+# Read to resolve references that reach out of the load order, but their own
+# overrides are NOT applied. Gigastructures' tier 6-9 ACOT supertensile chain
+# names four ACOT technologies and the @acot_tier*cost* variables; without this,
+# those four prerequisites dangle and the costs stay unresolved. Loading ACOT
+# properly would instead drag in its 761 technologies and 4 vanilla overrides.
+#
+# ACOT publishes no git repository, so this one has to come from Steam.
+
+[[reference_sources]]
+key = "acot"
+name = "Ancient Cache of Technologies"
+kind = "workshop"
+workshop_id = 1419304439
