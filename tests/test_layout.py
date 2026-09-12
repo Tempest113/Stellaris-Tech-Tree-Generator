@@ -265,3 +265,90 @@ def test_every_technology_has_at_least_one_slot(built):
     graph, layout = built
     placed = {s.technology for s in layout.slots}
     assert placed == set(graph.records)
+
+
+# --------------------------------------------------------------------------
+# Crisis rows
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.corpus
+def test_crisis_rows_are_populated_and_sort_last(install, gigas_root: Path):
+    from pipeline import rows as rows_mod
+
+    load_order = (
+        LoadOrder()
+        .add(base_game_source(install.game, install.version))
+        .add(mod_source(gigas_root, key="gigas"))
+    )
+    extraction = extract(load_order)
+    graph = graph_mod.build(extraction)
+    assignment = rows_mod.assign(extraction, graph, rows_mod.load_config())
+    layout = layout_mod.build(graph, assignment)
+
+    crisis_rows = [r for r in layout.rows if r.is_crisis]
+    assert {r.category for r in crisis_rows} == {
+        "katzen",
+        "sirens",
+        "aeternum",
+        "blokkats",
+        "compound",
+    }
+    assert all(r.population > 0 for r in crisis_rows)
+
+    # Crisis bands sit below the main tree.
+    first_crisis = min(r.index for r in crisis_rows)
+    assert all(r.index > first_crisis or r.is_crisis for r in layout.rows[first_crisis:])
+    assert check_invariants(layout, graph) == []
+
+
+@pytest.mark.corpus
+def test_a_crisis_technology_appears_in_exactly_one_row(install, gigas_root: Path):
+    """Leaving it in its category row as well would make both bands lie."""
+    from pipeline import rows as rows_mod
+
+    load_order = (
+        LoadOrder()
+        .add(base_game_source(install.game, install.version))
+        .add(mod_source(gigas_root, key="gigas"))
+    )
+    extraction = extract(load_order)
+    graph = graph_mod.build(extraction)
+    assignment = rows_mod.assign(extraction, graph, rows_mod.load_config())
+    layout = layout_mod.build(graph, assignment)
+
+    for key in assignment.assigned:
+        slots = layout.slots_for(key)
+        assert len(slots) == 1, key
+        assert slots[0].row.area == layout_mod.CRISIS_GROUP
+
+
+@pytest.mark.corpus
+def test_blokkat_category_rows_disappear_once_the_crisis_row_exists(install, gigas_root: Path):
+    """Blokkats previously needed three rows to stay honest about area tint."""
+    from pipeline import rows as rows_mod
+
+    load_order = (
+        LoadOrder()
+        .add(base_game_source(install.game, install.version))
+        .add(mod_source(gigas_root, key="gigas"))
+    )
+    extraction = extract(load_order)
+    graph = graph_mod.build(extraction)
+    assignment = rows_mod.assign(extraction, graph, rows_mod.load_config())
+    layout = layout_mod.build(graph, assignment)
+
+    assert not [r for r in layout.rows if r.category == "blokkats" and not r.is_crisis]
+
+
+def test_stale_row_rule_fails_the_build():
+    """A rule left behind by a mod update must stop the build, not place nothing."""
+    from pipeline import rows as rows_mod
+
+    extraction = Extraction()
+    extraction.technologies["a"] = build_record("a", parse("a = { area = physics tier = 1 }").get_first("a"))
+    graph = graph_mod.build(extraction)
+    crisis = rows_mod.CrisisRow(key="x", name="X", keys=("tech_that_no_longer_exists",))
+
+    with pytest.raises(rows_mod.RowConfigError, match="does not exist"):
+        rows_mod.assign(extraction, graph, (crisis,))

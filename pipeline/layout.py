@@ -48,9 +48,16 @@ from typing import Iterator
 
 from .graph import EdgeKind, TechGraph
 from .records import AREAS, TechnologyRecord
+from .rows import RowAssignment
 
-#: Row groups, in reading order.
+#: Pseudo-area marking a crisis row. Sorts after the three real areas, so
+#: crisis bands sit below the main tree, and tells the renderer to tint the row
+#: by crisis rather than by research area -- a crisis chain spans all three.
+CRISIS_GROUP = "crisis"
+
+#: Row groups, in reading order. Crisis rows come last.
 AREA_ORDER = {area: index for index, area in enumerate(AREAS)}
+AREA_ORDER[CRISIS_GROUP] = len(AREAS)
 
 #: Edge kinds that constrain horizontal position.
 #:
@@ -94,6 +101,10 @@ class Row:
     @property
     def category(self) -> str:
         return self.key.category
+
+    @property
+    def is_crisis(self) -> bool:
+        return self.key.area == CRISIS_GROUP
 
 
 @dataclass(frozen=True)
@@ -170,13 +181,29 @@ class Layout:
         )
 
 
-def _row_keys(graph: TechGraph) -> list[RowKey]:
-    """Every ``(area, category)`` pair any technology can occupy."""
+def _placement_rows(record: TechnologyRecord, rows: RowAssignment | None) -> list[RowKey]:
+    """Rows a technology occupies.
+
+    A technology in a crisis occupies exactly that one row. Pulling it into a
+    crisis band and *also* leaving it in its category row would double-count it
+    and make both bands lie about their contents.
+    """
+    crisis = rows.crisis_of(record.key) if rows else None
+    if crisis:
+        return [RowKey(CRISIS_GROUP, crisis)]
+    return [
+        RowKey(area, category)
+        for area, categories in record.placements
+        for category in (categories or ("uncategorised",))
+    ]
+
+
+def _row_keys(graph: TechGraph, rows: RowAssignment | None) -> list[RowKey]:
+    """Every row any technology can occupy."""
     population: dict[RowKey, int] = defaultdict(int)
     for record in graph:
-        for area, categories in record.placements:
-            for category in categories or ("uncategorised",):
-                population[RowKey(area, category)] += 1
+        for key in _placement_rows(record, rows):
+            population[key] += 1
     return sorted(
         population,
         key=lambda key: (AREA_ORDER.get(key.area, len(AREAS)), key.category),
@@ -216,13 +243,17 @@ def _tier_band_starts(graph: TechGraph, records: dict[str, TechnologyRecord]) ->
     return bands
 
 
-def build(graph: TechGraph) -> Layout:
-    """Place every technology. Deterministic: identical input, identical output."""
+def build(graph: TechGraph, rows: RowAssignment | None = None) -> Layout:
+    """Place every technology. Deterministic: identical input, identical output.
+
+    ``rows`` optionally lifts crisis technologies out of their category rows and
+    into their own bands.
+    """
     records = graph.records
     if not records:
         return Layout()
 
-    row_keys, population = _row_keys(graph)
+    row_keys, population = _row_keys(graph, rows)
     bands = _tier_band_starts(graph, records)
 
     order = graph.topological_order()
@@ -255,9 +286,9 @@ def build(graph: TechGraph) -> Layout:
     cells: dict[tuple[RowKey, int], list[tuple[str, bool]]] = defaultdict(list)
     for key in order:
         record = records[key]
-        for index, (area, categories) in enumerate(record.placements):
-            for category in categories or ("uncategorised",):
-                cells[(RowKey(area, category), column[key])].append((key, index == 0))
+        placement_rows = _placement_rows(record, rows)
+        for index, row_key in enumerate(placement_rows):
+            cells[(row_key, column[key])].append((key, index == 0))
 
     slots: list[Slot] = []
     for (row_key, col), members in cells.items():
@@ -277,7 +308,8 @@ def build(graph: TechGraph) -> Layout:
                 )
             )
 
-    slots.sort(key=lambda s: (s.row.area, s.row.category, s.column, s.cell_index))
+    row_order = {key: index for index, key in enumerate(row_keys)}
+    slots.sort(key=lambda s: (row_order[s.row], s.column, s.cell_index))
 
     return Layout(
         slots=tuple(slots),

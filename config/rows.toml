@@ -1,0 +1,70 @@
+# Crisis rows.
+#
+# Gigastructures' crises each have a self-contained research chain, and a player
+# facing one wants to see it in a single band rather than scattered across three
+# research areas. Nothing in the technology data says which crisis a technology
+# belongs to, so membership is declared here where it can be read and corrected.
+#
+# Names come from Gigastructures' own `giga_category_*` localisation keys, the
+# ones it uses for situation log headings.
+#
+# Rules are tried strongest first: explicit `keys`, then `source_files`, then
+# `categories`, then `key_prefixes`, then `reachable_from`. A technology joins
+# the FIRST crisis that matches, so order below resolves any overlap.
+#
+# The build fails if a rule names a technology or file that does not exist,
+# which is what catches a stale rule after a mod update.
+
+[[crisis]]
+key = "katzen"
+name = "Katzenartig Imperium"
+source_files = ["giga_10_katzen.txt"]
+keys = ["tech_katzen_atomic_munitions"]
+note = """Confident. Gigastructures keeps the whole chain in one file.
+tech_katzen_atomic_munitions sits in the shared special-project file instead,
+so it is listed explicitly."""
+
+[[crisis]]
+key = "sirens"
+name = "Sirenalia"
+source_files = ["giga_18_eawaf.txt"]
+note = """Confident. EAWAF is Gigastructures' internal name for the Sirenalia
+chain; the disenchanter technologies are all here."""
+
+[[crisis]]
+key = "aeternum"
+name = "Aeternum"
+source_files = ["giga_11_aeternum.txt"]
+note = """Confident, but only three technologies so far. Expected to grow."""
+
+[[crisis]]
+key = "blokkats"
+name = "The Blokkats"
+source_files = ["giga_13_blokkat.txt"]
+categories = ["blokkats", "blokkatsprotocols"]
+note = """Confident. The file and the dedicated categories agree.
+Note this is the one group that already spanned all three research areas, so a
+single crisis row is strictly more honest than the three category rows it
+replaces."""
+
+[[crisis]]
+key = "compound"
+name = "The Compound"
+reachable_from = ["tech_qnm_utilities"]
+note = """NEEDS REVIEW - see docs/crisis-rows.md.
+
+tech_qnm_utilities is weight 0, so it is granted by event rather than
+researched, and everything downstream of it is the negative mass weapon set.
+That is 15 technologies including the root.
+
+The uncertainty is that Gigastructures treats The Compound and E.H.O.F. as two
+separate event chains (compound_crisis_chain and ehof_system_list both appear in
+giga_event_chains.txt with different situation_log_category values), yet their
+technologies share files giga_08_ehof_components.txt and
+giga_09_ehof_other.txt. Eight `tech_sm_*` Sentient Metal technologies are
+reachable from tech_qnm_utilities and so land here, while five more `tech_sm_*`
+and five `tech_qnm_*` component technologies gate on tech_ehof_sentient_tier_N
+instead and do not.
+
+Splitting a coherent-looking family like that may well be wrong. The candidates
+are listed in the build report."""
