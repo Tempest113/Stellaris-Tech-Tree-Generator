@@ -8,7 +8,7 @@
  */
 
 import { Camera } from "./camera";
-import { Renderer, emptySelection } from "./renderer";
+import { Renderer, TIER_HEADER_PX, emptySelection } from "./renderer";
 import { expand, type Dataset, type RawDataset } from "./types";
 
 const LONG_PRESS_MS = 450;
@@ -25,13 +25,18 @@ async function main(): Promise<void> {
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
   const data = expand(raw);
 
-  const camera = new Camera(raw.canvas, {
-    width: canvas.clientWidth,
-    height: canvas.clientHeight,
-  });
+  const camera = new Camera(
+    raw.canvas,
+    { width: canvas.clientWidth, height: canvas.clientHeight },
+    TIER_HEADER_PX,
+  );
   const renderer = new Renderer(canvas, data, camera);
   renderer.resize();
   camera.fit();
+
+  // Canvas text does not wait for web fonts: anything drawn before Chakra Petch
+  // arrives uses the fallback and stays that way until the next redraw.
+  void document.fonts.load(`600 14px "Chakra Petch"`).then(() => schedule());
 
   if (raw.atlas.sheets.length > 0) {
     // onload rather than decode(): decode() is allowed to defer indefinitely

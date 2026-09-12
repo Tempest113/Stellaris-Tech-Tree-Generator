@@ -308,6 +308,13 @@ def emit(
             "height": boxes.height,
             "card": {"w": geom.CARD_WIDTH, "h": geom.CARD_HEIGHT},
             "columnPitch": geom.COLUMN_PITCH,
+            # Left edge of every logical column, and the channel before it.
+            # Traces turn in that channel, so edges into one column share a
+            # trunk instead of each picking its own point to turn.
+            "columnX": [boxes.column_x(c) for c in range(layout.columns)],
+            "columnGap": geom.COLUMN_GAP,
+            "rowHeader": geom.ROW_HEADER,
+            "rowGutter": geom.ROW_GUTTER,
         },
         "edgeKinds": [k.value for k in EDGE_KINDS],
         "rows": [

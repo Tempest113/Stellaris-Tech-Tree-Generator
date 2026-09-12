@@ -22,6 +22,8 @@ export class Camera {
   constructor(
     private readonly content: { width: number; height: number },
     private viewport: Viewport,
+    /** Screen pixels at the top covered by a fixed header, kept clear by `fit`. */
+    private readonly topInset = 0,
   ) {}
 
   setViewport(viewport: Viewport): void {
@@ -29,13 +31,14 @@ export class Camera {
     this.clamp();
   }
 
-  /** Fit the whole tree on screen. */
+  /** Fit the whole tree on screen, below the header. */
   fit(): void {
+    const height = this.viewport.height - this.topInset;
     const sx = this.viewport.width / this.content.width;
-    const sy = this.viewport.height / this.content.height;
+    const sy = height / this.content.height;
     this.scale = Math.max(this.minScale, Math.min(sx, sy) * 0.98);
     this.x = (this.viewport.width - this.content.width * this.scale) / 2;
-    this.y = (this.viewport.height - this.content.height * this.scale) / 2;
+    this.y = this.topInset + (height - this.content.height * this.scale) / 2;
   }
 
   panBy(dx: number, dy: number): void {

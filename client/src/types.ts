@@ -78,6 +78,11 @@ export interface RawDataset {
     height: number;
     card: { w: number; h: number };
     columnPitch: number;
+    /** Left edge of each logical column; traces turn in the gap before it. */
+    columnX: number[];
+    columnGap: number;
+    rowHeader: number;
+    rowGutter: number;
   };
   edgeKinds: string[];
   rows: RawRow[];

@@ -4,14 +4,23 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
     <title>Stellaris Tech Tree</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap"
+    />
     <style>
+      /* Tokens match client/src/theme.ts; keep the two in step. */
       :root {
         color-scheme: dark;
-        --ink: #e8ecf2;
-        --dim: #8e99a8;
-        --bg: #0a0c10;
-        --panel: #11151c;
-        --line: #222a36;
+        --ink: #eef0f2;
+        --dim: #8f8b94;
+        --bg: #141414;
+        --panel: #1b1b1e;
+        --line: #38363c;
+        --rare: #a07be0;
+        --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
       }
       * { box-sizing: border-box; }
       html, body {
@@ -80,12 +89,12 @@
         border-left: 1px solid var(--line);
       }
       #panel[hidden] { display: none; }
-      #panel h2 { margin: 0 8px 4px 0; font-size: 20px; line-height: 1.25; }
+      #panel h2 { margin: 0 40px 4px 0; font: 600 20px/1.25 var(--display); }
       #panel h3 {
         margin: 20px 0 6px;
-        font-size: 12px;
+        font: 600 12px var(--display);
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.12em;
         color: var(--dim);
       }
       #panel .meta { margin: 0 0 12px; color: var(--dim); font-size: 13px; }
@@ -107,10 +116,10 @@
         border: 1px solid var(--line);
         color: var(--dim);
       }
-      #panel .flag.danger { color: #ff5f5f; border-color: #5b2020; }
-      #panel .flag.rare { color: #c9a227; border-color: #4d3f12; }
-      #panel .flag.event { color: #9b7fe0; border-color: #3b2f5b; }
-      #panel .flag.perk { color: #4bb3c9; border-color: #1d4954; }
+      #panel .flag.danger { color: #e05c5c; border-color: #5b2424; }
+      #panel .flag.rare { color: var(--rare); border-color: #3d2f5b; }
+      #panel .flag.event { color: var(--rare); border-color: #3d2f5b; }
+      #panel .flag.perk { color: var(--rare); border-color: var(--rare); }
 
       #panel ul.perks { list-style: none; padding-left: 0; }
       #panel ul.perks li {

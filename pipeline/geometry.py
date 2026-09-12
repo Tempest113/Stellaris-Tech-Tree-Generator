@@ -38,7 +38,10 @@ COLUMN_GAP = 90
 CARD_GAP = 14
 
 #: Space above a row for its label, and below it before the next row starts.
-ROW_HEADER = 44
+#: The label is drawn in world units and never taller than this space, which is
+#: what stops it spilling onto the cards when zoomed out; the header is sized
+#: so it stays readable down to roughly a fifth of full scale.
+ROW_HEADER = 64
 ROW_GUTTER = 34
 
 #: Extra separation between research areas, and before the crisis bands.
