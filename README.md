@@ -35,6 +35,30 @@ python tools/vendor_sync.py                        # fetch pinned mod sources
 Stellaris is located automatically through Steam. Override with `STELLARIS_PATH`
 if it lives somewhere unusual.
 
+## Running the viewer
+
+The client only ever reads a prebuilt dataset, so build that first, then start
+Vite:
+
+```bash
+.venv/Scripts/python tools/build_dataset.py --out client/public/data
+npm --prefix client install
+npm --prefix client run dev
+```
+
+The tree is then at <http://localhost:5173>. The dev server runs in the
+foreground and dies with the terminal that started it, so if the page will not
+load, check that the terminal is still alive before looking anywhere else.
+`.claude/launch.json` pins port 5180 instead, for editor-driven previews.
+
+`npm --prefix client run build` writes the deployable static site to
+`client/dist`.
+
+Controls: hover highlights a technology's ancestry and descendants, click pins
+it and opens the detail panel, middle-click isolates it into a mini-tree,
+<kbd>F</kbd> fits the tree, <kbd>Esc</kbd> clears. Touch equivalents: tap to
+select, long-press to isolate.
+
 ## Mod sources
 
 Mods are fetched from git and pinned to an exact commit rather than read from a
@@ -47,6 +71,7 @@ checkout: Gigastructures is 1.9 GB, of which ~49 MB is relevant.
 ## Documentation
 
 - `docs/KNOWN-CORPUS-DEFECTS.md` — third-party data problems the pipeline copes with
+- `docs/crisis-rows.md` — why the Gigastructures crises get rows of their own
 
 ## Licence and attribution
 
