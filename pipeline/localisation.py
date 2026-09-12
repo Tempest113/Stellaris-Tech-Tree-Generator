@@ -190,12 +190,22 @@ def load(load_order: LoadOrder, *, language: str = "english") -> Localisation:
 
 
 def coverage(table: Localisation, keys: list[str]) -> dict[str, list[str]]:
-    """Report which of ``keys`` have no name, and which resolve to nothing.
+    """Report localisation gaps, by kind.
 
-    Separated because they are different problems: a missing key means the
-    technology has no localisation at all, while an empty resolution means the
-    entry exists but every token in it dropped out.
+    Three different problems, kept apart because they need different fixes:
+
+    ``missing``
+        No entry at all. The renderer falls back to the key.
+    ``empty``
+        An entry exists but resolves to nothing, usually because every token in
+        it dropped out.
+    ``placeholder``
+        An entry exists whose value *is* its own key --
+        ``giga_tech_aeternite_weaponry:0 "giga_tech_aeternite_weaponry"``. This
+        reads as present to any check that only asks whether the key exists, and
+        displays as a raw key to the reader, so it is worth catching separately.
     """
     missing = [k for k in keys if k not in table]
     empty = [k for k in keys if k in table and not table.get(k)]
-    return {"missing": missing, "empty": empty}
+    placeholder = [k for k in keys if k in table and table.get(k) == k]
+    return {"missing": missing, "empty": empty, "placeholder": placeholder}

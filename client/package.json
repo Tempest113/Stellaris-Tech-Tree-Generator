@@ -1,0 +1,17 @@
+{
+  "name": "stellaris-tech-tree-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Canvas 2D renderer for the Stellaris technology tree.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

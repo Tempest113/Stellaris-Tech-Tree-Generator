@@ -89,3 +89,27 @@ Three Gigastructures technologies genuinely have neither:
 
 The set above is pinned in `tests/test_icons.py`. If a fix upstream adds art,
 delete the key from both places rather than loosening the assertion.
+
+### 5. Localisation placeholders and gaps
+
+Found while rendering the Aeternum crisis row, where one card displayed a raw
+technology key.
+
+**`giga_tech_aeternite_weaponry` has a placeholder entry.** Its localisation
+value *is* its own key:
+
+```
+ giga_tech_aeternite_weaponry:0 "giga_tech_aeternite_weaponry"
+```
+
+This defeats any check that only asks whether the key exists, which is why
+`Localisation.coverage()` reports `placeholder` as a category of its own. The
+renderer shows the key, which is the honest outcome, but it is an upstream bug
+worth reporting to Gigastructures.
+
+**Eight technologies have no description**, seven of them vanilla:
+`giga_tech_improbable_kaiser_moon`, `tech_adaptive_bureaucracy`,
+`tech_combat_computers_1`, `tech_combat_computers_3`, `tech_living_state`,
+`tech_planetary_unification`, `tech_repeatable_reduced_building_cost`,
+`tech_repeatable_reduced_building_time`. The detail panel shows an empty
+description rather than inventing one.
