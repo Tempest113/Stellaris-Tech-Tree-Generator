@@ -249,7 +249,7 @@ def emit(
         if flags:
             node["f"] = flags
         tag = unlocks_mod.tag_for(
-            record, extraction.unlock_routes.get(slot.technology, ()), config
+            record, extraction.unlock_routes.get(slot.technology, ()), config, extraction.unlocks
         )
         if tag:
             node["tg"] = tag

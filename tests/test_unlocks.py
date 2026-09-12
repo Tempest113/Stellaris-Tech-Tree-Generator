@@ -23,7 +23,35 @@ from pipeline.unlocks import (
     tag_for,
 )
 
-TAG_COUNTS = {"Event": 158, "Observation Insight": 13, "Starting": 1}
+TAG_COUNTS = {
+    "Blokkat Bureau": 36,
+    "Crisis Level": 14,
+    "Observation Insight": 13,
+    "Special Project": 12,
+    "Debris": 10,
+    "Covenant": 9,
+    "Reality Code": 9,
+    "Anomaly": 8,
+    "Archaeology": 7,
+    "Minor Artifact": 7,
+    "Mutation Project": 7,
+    "Situation": 7,
+    "Astral Rift": 6,
+    "First Contact": 5,
+    "Enclave": 2,
+    "Unobtainable": 4,
+    "Event": 3,
+    "Aeternum Bureau": 2,
+    "Caravaneers": 2,
+    "Combat": 1,
+    "Council Agenda": 1,
+    "Flusion Operation": 1,
+    "Megastructure": 1,
+    "Paragon": 1,
+    "Shroud": 1,
+    "Starting": 1,
+    "Unknown": 1,
+}
 
 
 @pytest.fixture(scope="module")
@@ -122,10 +150,77 @@ def test_a_configured_route_takes_its_tag():
         scripted_effects__insight=Definition(grants=["t"]),
         **{"event__obs.1": Definition(calls=[("scripted_effects", "insight")])},
     )
-    config = UnlockConfig(route_tags={"scripted_effects:insight": "Observation Insight"})
+    config = UnlockConfig(route_tags=[("scripted_effects:insight", "Observation Insight")])
     assert [(r.kind, r.key) for r in routes("t", index, config)] == [
         (RouteKind.TAGGED, "Observation Insight")
     ]
+
+
+def test_route_patterns_are_wildcards_and_the_earliest_rule_wins():
+    index = _index(
+        anomalies__DISTAR_CAT=Definition(calls=[("event", "distar.50")]),
+        **{"event__distar.50": Definition(grants=["t"])},
+    )
+    config = UnlockConfig(route_tags=[("anomalies:*", "Anomaly"), ("event:distar.*", "Event Chain")])
+    assert tag_for(_record("weight = 0", key="t"), routes("t", index, config), config) == "Anomaly"
+
+
+def test_a_research_chain_is_a_research_route_whatever_it_passes_through():
+    """Psionic Aura Intensification: offered on research, via a Shroud event."""
+    index = _index(
+        on_actions__on_tech_increased=Definition(calls=[("event", "shroud.1560")]),
+        **{"event__shroud.1560": Definition(grants=["t"], trigger_technologies=("tech_aura",))},
+    )
+    config = UnlockConfig(route_tags=[("event:shroud.*", "Shroud")])
+    assert [(r.kind, r.key) for r in routes("t", index, config)] == [(RouteKind.RESEARCH, "tech_aura")]
+
+
+def test_a_value_naming_an_event_fires_it():
+    """An anomaly's ``on_success = distar.50`` is a call like any other."""
+    definition = Definition()
+    _scan(parse("on_success = distar.50 stage = { event = distar.51 }"), definition, set(), {"distar.50", "distar.51"})
+    assert definition.calls == [("event", "distar.50"), ("event", "distar.51")]
+
+
+def test_add_tech_progress_is_a_grant():
+    assert _definition("add_tech_progress = { tech = tech_secrets_baol progress = 0.1 }").grants == [
+        "tech_secrets_baol"
+    ]
+
+
+def test_a_parameterised_effect_grants_at_the_call_site():
+    """``add_tech_option_or_research_effect = { TECH = tech_neuroregeneration }``."""
+    from pipeline.unlocks import _resolve_parameterised
+
+    index = _index(
+        scripted_effects__give=Definition(grants=["$TECH$"]),
+        **{"event__bio.280": _definition("give = { TECH = tech_x }", effects={"give"})},
+    )
+    _resolve_parameterised(index)
+    assert index.granted_by["tech_x"] == [("event", "bio.280")]
+    assert "$TECH$" not in index.granted_by
+
+
+def test_a_declared_parameter_grant_hands_out_the_parameter():
+    """Astral rift rewards: the script only sets a flag, a later event grants."""
+    from pipeline.unlocks import _resolve_parameterised
+
+    caller = _definition('inline_script = { script = "rift/tech_option" TECH = tech_y }')
+    index = _index(inline_scripts__rift=Definition(), **{"event__rift.1": caller})
+    config = UnlockConfig(parameter_grants=[("inline_scripts:rift/tech_option", "TECH")])
+    _resolve_parameterised(index, config)
+    assert index.granted_by["tech_y"] == [("event", "rift.1")]
+
+
+def test_no_route_and_a_component_prerequisite_is_debris():
+    index = UnlockIndex(component_prerequisites={"t"})
+    assert tag_for(_record("weight = 0", key="t"), (), UnlockConfig(), index) == "Debris"
+
+
+def test_no_route_and_no_component_is_unknown_not_a_guess():
+    from pipeline.unlocks import TAG_UNKNOWN
+
+    assert tag_for(_record("weight = 0", key="t"), (), UnlockConfig(), UnlockIndex()) == TAG_UNKNOWN
 
 
 def test_fallen_empire_roots_are_not_player_routes():
@@ -190,7 +285,9 @@ def test_a_manual_override_wins_and_can_clear():
 def test_the_shipped_config_loads():
     config = load_config()
     assert config.names["has_genetically_ascended"] == "Genetic Ascension"
-    assert config.route_tags["scripted_effects:add_observation_insight_effect"] == "Observation Insight"
+    assert ("scripted_effects:add_observation_insight_effect", "Observation Insight") in config.route_tags
+    assert config.debris_tag == "Debris"
+    assert config.parameter_grants
 
 
 # --------------------------------------------------------------------------
@@ -199,7 +296,7 @@ def test_the_shipped_config_loads():
 
 
 def _tag(built, key: str) -> str | None:
-    return tag_for(built[key], built.unlock_routes.get(key, ()), built.unlock_config)
+    return tag_for(built[key], built.unlock_routes.get(key, ()), built.unlock_config, built.unlocks)
 
 
 @pytest.mark.corpus
@@ -247,3 +344,37 @@ def test_observation_insights_are_tagged(built):
 def test_colossi_are_not_tagged_event(built):
     assert _tag(built, "tech_colossus") is None
     assert (RouteKind.PERK, "ap_colossus") in {(r.kind, r.key) for r in built.unlock_routes["tech_colossus"]}
+
+
+@pytest.mark.corpus
+def test_inferred_tags_for_representative_routes(built):
+    """One technology per inference, checked against how the game hands it out."""
+    expected = {
+        "giga_tech_blokkat_laser": "Blokkat Bureau",
+        "tech_cosmogenesis_crisis_3": "Crisis Level",
+        "tech_secrets_baol": "Minor Artifact",
+        "tech_unique_mutation_tiyanki": "Mutation Project",
+        "tech_covenant_cradle": "Covenant",
+        "tech_alloy_fossilization": "Anomaly",
+        "giga_tech_blokkat_history": "Archaeology",
+        "tech_psionic_barrier": "Astral Rift",
+        "tech_xeno_linguistics": "First Contact",
+        "tech_strike_craft_skrand": "Paragon",
+        "tech_prescient_data_modeling": "Caravaneers",
+        "null_void_beam": "Special Project",
+        "tech_space_cloud_weapon_1": "Debris",
+        "tech_frameworld_defensive_station_2": "Unobtainable",
+    }
+    assert {key: _tag(built, key) for key in expected} == expected
+
+
+@pytest.mark.corpus
+def test_null_void_beam_is_found_through_its_carrier_event(built):
+    """A ``carrier_event``; missing that event kind hid over a thousand vanilla events."""
+    assert ("event", "colony.3008") in built.unlocks.granted_by["null_void_beam"]
+
+
+@pytest.mark.corpus
+def test_research_unlocks_keep_no_tag_whatever_else_matches(built):
+    assert _tag(built, "tech_aura_intensification") is None
+    assert _tag(built, "tech_lgate_activation") is None

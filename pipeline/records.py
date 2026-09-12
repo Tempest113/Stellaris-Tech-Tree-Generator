@@ -557,7 +557,7 @@ def extract(
     # expansion is what puts `potential` and `weight_modifier` there at all.
     config = unlock_config if unlock_config is not None else unlocks_mod.load_config()
     extraction.unlock_config = config
-    extraction.unlocks = unlocks_mod.build_index(load_order)
+    extraction.unlocks = unlocks_mod.build_index(load_order, config)
     extraction.unlock_routes = unlocks_mod.build(
         extraction.technologies, extraction.unlocks, config
     )

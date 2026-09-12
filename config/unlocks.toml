@@ -26,12 +26,202 @@ is_eager_explorer_empire = "Eager Explorers"
 
 # --- Routes -------------------------------------------------------------------
 #
-# A route passing through `via` -- written "kind:key", as in the build report --
-# gets `tag` on its card instead of the generic "Event".
+# A route passing through `via` gets `tag` on its card instead of the generic
+# "Event". `via` names a container as "kind:key" -- `event:distar.50`,
+# `anomalies:DISTAR_LOST_CAT`, `special_project:COLOSSUS_PROJECT` -- and may use
+# shell wildcards. A route matches if any container on its way to the player
+# does. Rules are tried in the order written, and a technology with several
+# routes takes the tag of the earliest rule any of them matched, so specific
+# rules go first and catch-alls last.
+#
+# Ascension perk and tradition routes never reach these rules: they show as a
+# gate instead. Neither do research unlocks.
+#
+# Every tag below was inferred from the containers a route passes through and
+# is worth checking against the game.
+
+# Gigastructures crisis interactions, named for the menu a player works through.
+[[route]]
+via = "button_effects:giga_contact_blokkat_bureau"
+tag = "Blokkat Bureau"
+
+[[route]]
+via = "edicts:giga_blokkat_bureau_edict"
+tag = "Blokkat Bureau"
+
+[[route]]
+via = "button_effects:giga_contact_aeternum"
+tag = "Aeternum Bureau"
+
+[[route]]
+via = "edicts:giga_aeternum_bureau_edict"
+tag = "Aeternum Bureau"
+
+[[route]]
+via = "event:giga_flusionoperations.*"
+tag = "Flusion Operation"
+
+[[route]]
+via = "event:ehof_reality_code.*"
+tag = "Reality Code"
+
+
+# Named systems a player recognises by name.
+# Grand Archive vivarium mutation projects, which complete as events 10010-10080.
+[[route]]
+via = "event:grand_archive.100[0-9][0-9]"
+tag = "Mutation Project"
+
+[[route]]
+via = "patrons:*"
+tag = "Covenant"
+
+[[route]]
+via = "inline_scripts:shroud/patron_*"
+tag = "Covenant"
+
+
+# The monthly Covenant check that hands out the marks.
+[[route]]
+via = "event:utopia.2686"
+tag = "Covenant"
+
+
+# Legendary paragons such as Skrand Sharpcrag.
+[[route]]
+via = "event:paragon.*"
+tag = "Paragon"
+
+[[route]]
+via = "scripted_effects:cara_execute_deal*"
+tag = "Caravaneers"
 
 [[route]]
 via = "scripted_effects:add_observation_insight_effect"
 tag = "Observation Insight"
+
+# The first alien encounter, which is how Xeno-Linguistics usually arrives.
+[[route]]
+via = "event:progress.4"
+tag = "First Contact"
+
+# Enclaves: the Curators' research aid, and the Shroudwalkers' insights (the
+# enclave.4xx events). Deliberately not `event:enclave.*`, which also matches a
+# Shroudwalker divination that can set off the dimensional portal colony event
+# and would claim the Null Void Beam for the enclave.
+[[route]]
+via = "event:enclave.4[0-9][0-9]"
+tag = "Enclave"
+
+[[route]]
+via = "event:leviathans.50[0-9]"
+tag = "Enclave"
+
+# Journeys into the Shroud, after anything more specific above.
+[[route]]
+via = "event:shroud.*"
+tag = "Shroud"
+
+
+# Discoveries any empire can make, most specific first.
+[[route]]
+via = "artifact_actions:*"
+tag = "Minor Artifact"
+
+[[route]]
+via = "archaeological_site_types:*"
+tag = "Archaeology"
+
+[[route]]
+via = "anomalies:*"
+tag = "Anomaly"
+
+[[route]]
+via = "espionage_operation_types:*"
+tag = "Espionage"
+
+[[route]]
+via = "event:astral_rift.*"
+tag = "Astral Rift"
+
+[[route]]
+via = "astral_rifts:*"
+tag = "Astral Rift"
+
+[[route]]
+via = "first_contact:*"
+tag = "First Contact"
+
+
+
+[[route]]
+via = "special_project:*"
+tag = "Special Project"
+
+[[route]]
+via = "megastructures:*"
+tag = "Megastructure"
+
+[[route]]
+via = "council_agendas:*"
+tag = "Council Agenda"
+
+[[route]]
+via = "diplomatic_actions:*"
+tag = "Diplomacy"
+
+[[route]]
+via = "relics:*"
+tag = "Relic"
+
+
+# Destroying or disabling particular ships: guardians, leviathans, crisis vessels.
+[[route]]
+via = "on_actions:on_ship_destroyed_perp"
+tag = "Combat"
+
+[[route]]
+via = "on_actions:on_fleet_destroyed_perp"
+tag = "Combat"
+
+[[route]]
+via = "on_actions:on_ship_disabled"
+tag = "Combat"
+
+[[route]]
+via = "on_actions:on_survey_planet"
+tag = "Survey"
+
+
+# Last, because they belong to one origin's or one crisis path's campaign: a
+# technology with a route open to everyone should be tagged by that route.
+[[route]]
+via = "situations:*"
+tag = "Situation"
+
+[[route]]
+via = "crisis_levels:*"
+tag = "Crisis Level"
+
+
+# --- Parameter grants ---------------------------------------------------------
+#
+# Calls matching `via` hand out the technology named in `param`, even though
+# the script called never grants it directly. Astral rift rewards are offered as
+# options this way, and the choice is granted later by an event that reads a
+# flag, which static reading cannot follow.
+
+[[parameter_grant]]
+via = "inline_scripts:astral_rift/3060_tech_option"
+param = "TECH"
+
+# --- Debris -------------------------------------------------------------------
+#
+# An undrawable technology that no effect grants but a ship component requires
+# is learned from the debris of ships carrying that component.
+
+[debris]
+tag = "Debris"
 
 # --- Per-technology tags ------------------------------------------------------
 #
@@ -40,3 +230,10 @@ tag = "Observation Insight"
 #   tech_example = "Observation Insight"
 
 [technology]
+# Gigastructures grants these from Frame World origin events that are entirely
+# commented out at the pinned commit (events/giga_210_origins_frameworld.txt,
+# giga_frameworld_origin.303 onward), and nothing else hands them out.
+tech_frameworld_defensive_station_2 = "Unobtainable"
+tech_frameworld_defensive_station_3 = "Unobtainable"
+tech_frameworld_defensive_station_4 = "Unobtainable"
+tech_frameworld_defensive_station_5 = "Unobtainable"

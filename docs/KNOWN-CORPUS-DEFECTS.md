@@ -113,3 +113,17 @@ worth reporting to Gigastructures.
 `tech_planetary_unification`, `tech_repeatable_reduced_building_cost`,
 `tech_repeatable_reduced_building_time`. The detail panel shows an empty
 description rather than inventing one.
+
+## Verified 2026-09-12 — Gigastructures 3.39.4 at 4f7d3a1
+
+### 6. Frame World defensive station technologies cannot be obtained
+
+`tech_frameworld_defensive_station_2` through `_5` have `weight = 0`, so the
+research pool never offers them, and the only effects that grant them --
+`giga_frameworld_origin.303` onward in `events/giga_210_origins_frameworld.txt`,
+one per starbase tier via `last_increased_tech` -- are commented out in full.
+Nothing else in the load order hands them out.
+
+**Handling:** tagged "Unobtainable" by manual override in `config/unlocks.toml`.
+If the events are restored upstream, delete the four overrides; the build will
+then trace them as research unlocks on its own.

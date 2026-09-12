@@ -110,7 +110,12 @@ def main() -> int:
                     "not traced, and its event-granted technologies fall back to 'Event'"
                 )
         tags = Counter(
-            unlocks_mod.tag_for(record, extraction.unlock_routes.get(key, ()), extraction.unlock_config)
+            unlocks_mod.tag_for(
+                record,
+                extraction.unlock_routes.get(key, ()),
+                extraction.unlock_config,
+                extraction.unlocks,
+            )
             for key, record in extraction.technologies.items()
         )
         del tags[None]
@@ -152,6 +157,20 @@ def main() -> int:
     out = args.out or (cfg.output_root / "data")
     result = emit_mod.emit(extraction, graph, layout, localisation, assignment, out)
     print(f"emit:    {result.summary()}")
+
+    tags_report = cfg.output_root / "unlock-tags.md"
+    tags_report.parent.mkdir(parents=True, exist_ok=True)
+    tags_report.write_text(
+        unlocks_mod.report(
+            extraction.technologies,
+            extraction.unlock_routes,
+            extraction.unlock_config,
+            extraction.unlocks,
+            localisation,
+        ),
+        encoding="utf-8",
+    )
+    print(f"tags:    review every card tag -> {tags_report}")
 
     report = cfg.output_root / "crisis-rows.md"
     report.parent.mkdir(parents=True, exist_ok=True)
