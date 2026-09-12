@@ -109,6 +109,7 @@ def emit(
 
     crisis_names = {c.key: c.name for c in (assignment.crises if assignment else ())}
     icons = extraction.icons
+    perk_gates = extraction.perk_gates
 
     # Stable node order so diffs between builds are readable.
     slots = sorted(layout.slots, key=lambda s: (s.row.area, s.row.category, s.column, s.cell_index))
@@ -135,6 +136,10 @@ def emit(
             flags.append("rare")
         if record.is_weightless:
             flags.append("weightless")
+        if perk_gates.get(slot.technology):
+            # Two separate facts. A technology can be perk-gated and still
+            # event-granted, and the panel says which applies.
+            flags.append("perk-gated")
         if record.start_tech:
             flags.append("start")
         if slot.spilled:
@@ -164,6 +169,18 @@ def emit(
             node["lv"] = record.levels
         nodes.append(node)
 
+    perk_icons: dict[str, str] = {}
+    if icons:
+        for gates in perk_gates.values():
+            for gate in gates:
+                for perk in gate.perks:
+                    if perk in perk_icons:
+                        continue
+                    ref = icons.ascension_perk(perk)
+                    if ref.stem:
+                        perk_icons[perk] = ref.stem
+                        used_icon_stems.append(ref.stem)
+
     slot_stems, sheets = build_atlas(icons, used_icon_stems, directory) if icons else ({}, [])
     for node in nodes:
         node["ic"] = slot_stems.get(node["ic"], -1)
@@ -189,7 +206,7 @@ def emit(
                 "columns": layout.columns,
             },
         },
-        "atlas": {"sheets": sheets, "cell": CELL, "perRow": PER_ROW, "perSheet": PER_SHEET},
+        "atlas": {"sheets": sheets, "cell": CELL, "perRow": PER_ROW, "perSheet": PER_SHEET, "size": SHEET},
         "canvas": {
             "width": boxes.width,
             "height": boxes.height,
@@ -239,16 +256,44 @@ def emit(
         "edges": edges,
     }
 
-    details = {
-        node["k"]: {
-            "d": localisation.description(node["k"]),
-            "p": [
-                list(group.options)
-                for group in extraction[node["k"]].prerequisites
-            ],
+    def gate_payload(key: str) -> list[dict]:
+        """Perk gates for the detail panel.
+
+        Perk *names* are deduplicated, not perk keys: Galactic Wonders ships as
+        four DLC-conditional keys that all localise to the same words, and
+        listing it four times would read as four requirements.
+        """
+        payload = []
+        for gate in perk_gates.get(key, ()):
+            names: list[str] = []
+            slots: list[int] = []
+            for perk in gate.perks:
+                name = localisation.name(perk)
+                slot = slot_stems.get(perk_icons.get(perk, ""), -1)
+                if name in names:
+                    # Same perk under another name-sharing key. Keep whichever
+                    # one ships art: the three DLC-conditional Galactic Wonders
+                    # keys have none of their own and reuse the base perk's.
+                    at = names.index(name)
+                    if slots[at] < 0:
+                        slots[at] = slot
+                    continue
+                names.append(name)
+                slots.append(slot)
+            payload.append({"k": gate.kind.value, "n": names, "i": slots})
+        return payload
+
+    details = {}
+    for node in nodes:
+        key = node["k"]
+        entry = {
+            "d": localisation.description(key),
+            "p": [list(group.options) for group in extraction[key].prerequisites],
         }
-        for node in nodes
-    }
+        gates = gate_payload(key)
+        if gates:  # 82 of 978 technologies; omitted elsewhere to keep this small
+            entry["ap"] = gates
+        details[key] = entry
 
     files: dict[str, int] = {}
     for name, payload in (("dataset.json", dataset), ("details.json", details)):

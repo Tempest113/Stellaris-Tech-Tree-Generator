@@ -26,10 +26,14 @@ from typing import Iterable, Iterator
 
 from .clausewitz import Block, Scalar
 from .clausewitz.nodes import Node
+from .gates import PerkGate
+from .gates import build as build_perk_gates
 from .icons import IconIndex, IconRef
 from .icons import build_index as build_icon_index
 from .inline_scripts import Expander, ExpansionStats
 from .inline_scripts import build_index as build_script_index
+from .triggers import TriggerIndex
+from .triggers import build_index as build_trigger_index
 from .loadorder import KeyOrigin, LoadOrder, Source, merge_keys, resolve_files
 from .variables import VariableTable, collect_variables
 
@@ -399,6 +403,10 @@ class Extraction:
     icons: IconIndex | None = None
     expansion: ExpansionStats | None = None
     load_order: LoadOrder | None = None
+    triggers: TriggerIndex | None = None
+    #: Ascension perks gating a technology, for the technologies that have any.
+    #: Empty for most of the corpus, so stored aside rather than on the record.
+    perk_gates: dict[str, tuple[PerkGate, ...]] = field(default_factory=dict)
     #: Non-fatal problems worth surfacing in the build report.
     problems: list[str] = field(default_factory=list)
 
@@ -469,12 +477,14 @@ def extract(
     )
     expander = Expander(build_script_index(load_order))
     icons = build_icon_index(load_order)
+    triggers = build_trigger_index(load_order)
 
     extraction = Extraction(
         variables=variables,
         icons=icons,
         expansion=expander.stats,
         load_order=load_order,
+        triggers=triggers,
     )
 
     for key, block in raw.blocks.items():
@@ -485,6 +495,10 @@ def extract(
         extraction.technologies[key] = build_record(
             key, expanded, origin=raw.origins.get(key)
         )
+
+    # After the loop: a gate is read off the expanded record, and inline script
+    # expansion is what puts `potential` and `weight_modifier` there at all.
+    extraction.perk_gates = build_perk_gates(extraction.technologies, triggers)
 
     if expander.stats.missing_scripts:
         extraction.problems.append(

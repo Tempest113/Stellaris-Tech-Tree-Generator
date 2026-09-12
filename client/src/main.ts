@@ -13,6 +13,8 @@ import { expand, type Dataset, type RawDataset } from "./types";
 
 const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 12;
+/** Rendered size of a perk icon in the detail panel. */
+const PERK_ICON_PX = 20;
 
 async function main(): Promise<void> {
   const canvas = document.getElementById("tree") as HTMLCanvasElement;
@@ -115,7 +117,9 @@ async function main(): Promise<void> {
 
   // -- detail panel ------------------------------------------------------
 
-  let details: Record<string, { d: string; p: string[][] }> | null = null;
+  /** `ap` is a conjunction of gates; the names within one gate are alternatives. */
+  type PerkGate = { k: "required" | "undrawable"; n: string[]; i: number[] };
+  let details: Record<string, { d: string; p: string[][]; ap?: PerkGate[] }> | null = null;
   async function showPanel(index: number): Promise<void> {
     const node = data.nodes[index]!;
     if (!details) {
@@ -143,10 +147,13 @@ async function main(): Promise<void> {
       <p class="flags">
         ${node.dangerous ? '<span class="flag danger">Dangerous</span>' : ""}
         ${node.rare ? '<span class="flag rare">Rare</span>' : ""}
-        ${node.weightless ? '<span class="flag event">Not researchable – granted by event</span>' : ""}
+        ${perkFlag(detail?.ap)}
+        ${node.weightless && !node.perkGated ? '<span class="flag event">Not researchable – granted by event</span>' : ""}
+        ${node.weightless && node.perkGated ? '<span class="flag event">Granted, not researched</span>' : ""}
         ${node.spilled ? '<span class="flag">Placed past its tier band</span>' : ""}
       </p>
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
+      ${perkSection(detail?.ap)}
       <h3>Prerequisites ${prereqs ? "" : "<span class='none'>none</span>"}</h3>
       <ul>${prereqs}</ul>
       <h3>Unlocks ${dependents ? "" : "<span class='none'>nothing</span>"}</h3>
@@ -164,6 +171,62 @@ async function main(): Promise<void> {
 
   function hidePanel(): void {
     panel.hidden = true;
+  }
+
+  /** Short badge naming the perks, or counting them when there are too many. */
+  function perkFlag(gates: PerkGate[] | undefined): string {
+    if (!gates?.length) return "";
+    const required = gates.some((g) => g.k === "required");
+    const names = gates.map((g) => g.n.join(" or "));
+    const label = names.length <= 2 ? names.join(" + ") : `${names.length} ascension perks`;
+    const verb = required ? "Requires" : "Needs";
+    return `<span class="flag perk">${verb} ${escapeHtml(label)}</span>`;
+  }
+
+  /**
+   * The gates, spelled out.
+   *
+   * Two kinds, kept apart because they are not the same claim. A `required`
+   * gate means the technology does not exist for the empire at all; an
+   * `undrawable` one means it exists but is never offered, which still leaves
+   * an event free to grant it.
+   */
+  function perkSection(gates: PerkGate[] | undefined): string {
+    if (!gates?.length) return "";
+    const items = gates
+      .map((gate) => {
+        const names = gate.n
+          .map((name, i) => {
+            const icon = gate.i[i] ?? -1;
+            const art = icon >= 0 ? `<i class="perk-icon" style="${atlasStyle(icon)}"></i>` : "";
+            return `${art}${escapeHtml(name)}`;
+          })
+          .join(" <em>or</em> ");
+        const note =
+          gate.k === "required"
+            ? "does not exist without it"
+            : "exists, but is never offered for research without it";
+        return `<li>${names}<span class="note">${note}</span></li>`;
+      })
+      .join("");
+    const heading = gates.length > 1 ? "Ascension perks" : "Ascension perk";
+    return `<h3>${heading}</h3><ul class="perks">${items}</ul>`;
+  }
+
+  /** Background shorthand for one atlas cell, so a perk icon needs no <img>. */
+  function atlasStyle(slot: number, size = PERK_ICON_PX): string {
+    const { cell, perRow, perSheet, sheets, size: sheetPx } = raw.atlas;
+    const sheet = Math.floor(slot / perSheet);
+    const within = slot % perSheet;
+    const scale = size / cell;
+    const x = (within % perRow) * cell * scale;
+    const y = Math.floor(within / perRow) * cell * scale;
+    return (
+      `background-image:url(data/${sheets[sheet]});` +
+      `background-position:-${x}px -${y}px;` +
+      `background-size:${sheetPx * scale}px ${sheetPx * scale}px;` +
+      `width:${size}px;height:${size}px;`
+    );
   }
 
   function nameOf(key: string): string {

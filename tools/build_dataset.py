@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pipeline import config as build_config
 from pipeline import emit as emit_mod
+from pipeline import gates as gates_mod
 from pipeline import graph as graph_mod
 from pipeline import layout as layout_mod
 from pipeline import localisation as loc_mod
@@ -95,6 +96,10 @@ def main() -> int:
         missing = extraction.icons.missing_icon_keys()
         if missing:
             print(f"  {len(missing)} technologies use the placeholder: {', '.join(missing)}")
+
+    if extraction.triggers:
+        print(f"triggers: {extraction.triggers.summary()}")
+    print(f"gates:   {gates_mod.summary(extraction.perk_gates)}")
 
     graph = graph_mod.build(extraction)
     print(f"graph:   {graph.summary()}")

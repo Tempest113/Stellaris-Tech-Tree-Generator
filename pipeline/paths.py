@@ -20,11 +20,13 @@ SCRIPT_SUBDIRS = (
 
 #: Asset directories, relative to a source root.
 #:
-#: Technology icons are resolved purely by convention -- a technology never
-#: declares an ``icon`` field, so the file is always
-#: ``technologies/<key>.dds``. Ascension perk icons are needed because perks are
-#: the highest-priority gate mechanism and a gated technology has to be able to
-#: show what gates it.
+#: Technology icons resolve from an explicit ``icon`` field where one is
+#: declared -- 15 technologies declare one, which is how several share a single
+#: piece of art -- and otherwise by convention from the key, as
+#: ``technologies/<key>.dds``. See ``docs/KNOWN-CORPUS-DEFECTS.md``.
+#:
+#: Ascension perk icons are needed because perks are the highest-priority gate
+#: mechanism and a gated technology has to be able to show what gates it.
 ICON_SUBDIRS = (
     "gfx/interface/icons/technologies",
     "gfx/interface/icons/ascension_perks",

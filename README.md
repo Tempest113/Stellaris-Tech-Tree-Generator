@@ -16,7 +16,7 @@ never computes geometry.
 | Stage | Runs | Produces |
 | --- | --- | --- |
 | Extract | Python, locally | Canonical expanded technology records, localisation, icons |
-| Compute | Python, locally | Graph, empire profiles, gates, layout, geometry |
+| Compute | Python, locally | Graph, ascension perk gates, layout, geometry |
 | Render | TypeScript, browser | The page |
 
 Vanilla game data cannot be redistributed, so CI cannot build the dataset. The

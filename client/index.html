@@ -110,6 +110,29 @@
       #panel .flag.danger { color: #ff5f5f; border-color: #5b2020; }
       #panel .flag.rare { color: #c9a227; border-color: #4d3f12; }
       #panel .flag.event { color: #9b7fe0; border-color: #3b2f5b; }
+      #panel .flag.perk { color: #4bb3c9; border-color: #1d4954; }
+
+      #panel ul.perks { list-style: none; padding-left: 0; }
+      #panel ul.perks li {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 6px 0;
+      }
+      #panel ul.perks .perk-icon {
+        display: inline-block;
+        flex: none;
+        background-repeat: no-repeat;
+        border-radius: 4px;
+        vertical-align: middle;
+      }
+      #panel ul.perks em { color: var(--dim); font-style: normal; }
+      #panel ul.perks .note {
+        flex-basis: 100%;
+        color: var(--dim);
+        font-size: 12px;
+      }
       #panel .close {
         position: absolute;
         top: 14px;

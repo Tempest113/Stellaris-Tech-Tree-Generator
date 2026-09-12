@@ -15,7 +15,8 @@ export type NodeFlag =
   | "weightless"
   | "start"
   | "spilled"
-  | "variant";
+  | "variant"
+  | "perk-gated";
 
 /** Index into `dataset.edgeKinds`. */
 export const EDGE_PREREQUISITE = 0;
@@ -64,7 +65,9 @@ export interface RawDataset {
     sources: { key: string; name: string; version: string | null }[];
     counts: Record<string, number>;
   };
-  atlas: { sheets: string[]; cell: number; perRow: number; perSheet: number };
+  /** `size` is the sheet's pixel width and height; `perRow * cell` is smaller,
+   *  so CSS background scaling needs the real figure. */
+  atlas: { sheets: string[]; cell: number; perRow: number; perSheet: number; size: number };
   canvas: {
     width: number;
     height: number;
@@ -101,6 +104,9 @@ export interface TechNode {
   weightless: boolean;
   isStart: boolean;
   spilled: boolean;
+  /** Behind at least one ascension perk. Independent of `weightless`: a
+   *  technology can be perk-gated and event-granted at once. */
+  perkGated: boolean;
   /** A second slot for a technology a swap relocates; not its own technology. */
   variant: boolean;
   /** Indices of nodes this one depends on. */
@@ -137,6 +143,7 @@ export function expand(raw: RawDataset): Dataset {
     weightless: flags(node, "weightless"),
     isStart: flags(node, "start"),
     spilled: flags(node, "spilled"),
+    perkGated: flags(node, "perk-gated"),
     variant: flags(node, "variant"),
     incoming: [],
     outgoing: [],
