@@ -41,6 +41,34 @@ from .records import Extraction, TechnologyRecord
 #: vanilla writes ``NOT``, Gigastructures writes ``not``.
 _NEGATING = {"not", "nor", "nand"}
 
+#: Trigger keys that move evaluation off the researching country and onto some
+#: other scope. A ``has_technology`` underneath one of these asks whether
+#: *somebody else* holds the technology, which is a condition on the state of
+#: the galaxy rather than a dependency of the technology being defined.
+#:
+#: Four such references exist in the corpus, all in the E.H.O.F. sentient metal
+#: chain. ``tech_ehof_sentient_tier_1`` becomes available when
+#: ``any_country = { has_technology = tech_ehof_sentient_tier_4 }`` -- once
+#: anyone in the galaxy reaches tier 4, tier 1 is unlocked for everybody.
+#: Reading that as a dependency inverts the chain and places tier 1 to the
+#: right of tier 4.
+#:
+#: Matched by prefix because the scope families are open-ended; the named set
+#: covers the fixed scopes that appear without one. ``this``, ``root`` and
+#: ``prev`` are deliberately absent: inside a technology's ``potential`` they
+#: still refer to the researching country, so treating them as a scope change
+#: would discard real dependencies.
+_SCOPE_PREFIXES = ("any_", "every_", "random_", "all_", "count_")
+_SCOPE_KEYS = {"owner", "controller", "capital_scope", "space_owner", "from", "fromfrom"}
+
+
+def _changes_scope(key: str) -> bool:
+    """Whether ``key`` evaluates its contents against a different scope."""
+    lowered = key.lower()
+    if lowered in _NEGATING:
+        return False
+    return lowered.startswith(_SCOPE_PREFIXES) or lowered in _SCOPE_KEYS
+
 
 class GraphError(RuntimeError):
     """The dependency graph could not be built."""
@@ -84,6 +112,10 @@ def find_technology_references(node: Node, *, negated: bool = False) -> list[tup
     A reference inside ``NOT``/``NOR``/``NAND`` means the technology must *not*
     be held, which is an exclusion rather than a dependency. Reporting both the
     same way would draw arrows that claim the opposite of what the data says.
+
+    References under a scope change are not collected at all: they describe
+    another country's technologies, not a dependency of this one. See
+    :data:`_SCOPE_PREFIXES`.
     """
     found: list[tuple[str, bool]] = []
     if isinstance(node, Scalar):
@@ -99,6 +131,8 @@ def find_technology_references(node: Node, *, negated: bool = False) -> list[tup
         if key == "has_technology" and isinstance(item.value, Scalar):
             found.append((item.value.value, negated))
         elif isinstance(item.value, Block):
+            if _changes_scope(key):
+                continue
             inner_negated = negated ^ (key.lower() in _NEGATING)
             found.extend(find_technology_references(item.value, negated=inner_negated))
     return found

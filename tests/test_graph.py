@@ -15,7 +15,11 @@ from pipeline.records import extract
 NODE_COUNT = 978
 PREREQUISITE_EDGES = 879
 ALTERNATIVE_EDGES = 76
-POTENTIAL_GATE_EDGES = 27
+#: Gates surviving the scope filter. The corpus holds 27 raw ``has_technology``
+#: references inside ``potential``; 6 of them sit under ``any_country`` or
+#: ``count_country`` in the E.H.O.F. sentient metal chain and describe the state
+#: of the galaxy rather than a dependency, and a 7th is a self-reference.
+POTENTIAL_GATE_EDGES = 21
 
 #: Gigastructures' ACOT chain, absent unless ACOT is loaded.
 DANGLING_TARGETS = {
@@ -130,6 +134,43 @@ def test_negation_detection_is_case_insensitive():
 def test_double_negation_is_a_requirement_again():
     block = parse("p = { NOT = { NOR = { has_technology = a } } }")
     assert find_technology_references(block.get_first("p")) == [("a", False)]
+
+
+def test_reference_under_a_changed_scope_is_not_a_dependency():
+    """``any_country = { has_technology = x }`` is a fact about the galaxy.
+
+    ``tech_ehof_sentient_tier_1`` unlocks once *anyone* reaches tier 4. Reading
+    that as a dependency inverts the chain and lays tier 1 out to the right of
+    tier 4.
+    """
+    source = (
+        "t = { area = physics tier = 2 potential = { "
+        "any_country = { has_technology = a } } }\n"
+        "a = { area = physics tier = 1 }\n"
+    )
+    graph = _graph_from(source)
+    assert graph.incoming("t") == []
+    assert graph.exclusions.get("t", ()) == ()
+
+
+def test_scope_change_is_detected_across_its_families():
+    for wrapper in ("any_country", "every_owned_planet", "random_system",
+                    "count_country", "owner", "FROM"):
+        block = parse(f"p = {{ {wrapper} = {{ has_technology = a }} }}")
+        assert find_technology_references(block.get_first("p")) == [], wrapper
+
+
+def test_self_scope_keywords_are_not_a_scope_change():
+    """Inside a technology's potential these still mean the researching country."""
+    for wrapper in ("this", "root", "prev"):
+        block = parse(f"p = {{ {wrapper} = {{ has_technology = a }} }}")
+        assert find_technology_references(block.get_first("p")) == [("a", False)], wrapper
+
+
+def test_scope_change_still_blocks_a_reference_it_negates():
+    """A scope change outranks negation: the reference is not ours either way."""
+    block = parse("p = { any_country = { NOT = { has_technology = a } } }")
+    assert find_technology_references(block.get_first("p")) == []
 
 
 def test_cycle_raises_and_names_the_cycle():

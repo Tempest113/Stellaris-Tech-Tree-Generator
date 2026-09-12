@@ -18,8 +18,9 @@ SLOT_COUNT = 987
 ROW_COUNT = 16
 #: Technologies pushed past their own tier band by a higher-tier prerequisite.
 SPILLED_COUNT = 25
-#: Potential-gate edges that end up running right-to-left. Permitted: they gate
-#: existence, not research order.
+#: Potential-gate edges that end up running right-to-left. Permitted: each
+#: arrives from a higher tier, so it is an alternative route in rather than a
+#: step along a chain. Every other gate constrains its column like a prerequisite.
 BACKWARD_GATE_EDGES = 7
 
 
@@ -95,11 +96,12 @@ def test_spilled_slot_keeps_its_true_tier():
     assert slot.tier == 1 and slot.spilled
 
 
-def test_potential_gate_does_not_constrain_columns():
+def test_potential_gate_from_a_higher_tier_does_not_constrain_columns():
     """``tech_missiles_1`` is tier 0 and gated by tier-5 Cosmogenesis escorts.
 
     Constraining on that edge drags the whole missile chain to the far right,
-    which is why gates are drawn but never push a column.
+    so a gate reaching back from a higher tier is drawn but never pushes a
+    column.
     """
     graph, layout = _layout(
         "early = { area = engineering tier = 0 potential = { has_technology = late } }\n"
@@ -108,6 +110,31 @@ def test_potential_gate_does_not_constrain_columns():
     columns = _columns(layout)
     assert columns["early"] < columns["late"]
     assert EdgeKind.POTENTIAL_GATE not in COLUMN_CONSTRAINT_KINDS
+    assert check_invariants(layout, graph) == []
+
+
+def test_potential_gate_within_a_tier_does_constrain_columns():
+    """Negative Mass Enhancements gates the Disruptor and the Ripper, same tier.
+
+    Leaving these level with their gate drew a dependency that appeared to
+    point at nothing.
+    """
+    graph, layout = _layout(
+        "gate = { area = engineering tier = 5 }\n"
+        "gated = { area = engineering tier = 5 potential = { has_technology = gate } }\n"
+    )
+    columns = _columns(layout)
+    assert columns["gated"] > columns["gate"]
+    assert check_invariants(layout, graph) == []
+
+
+def test_potential_gate_from_a_lower_tier_constrains_columns():
+    graph, layout = _layout(
+        "gate = { area = engineering tier = 1 }\n"
+        "gated = { area = engineering tier = 4 potential = { has_technology = gate } }\n"
+    )
+    columns = _columns(layout)
+    assert columns["gated"] > columns["gate"]
     assert check_invariants(layout, graph) == []
 
 
@@ -249,6 +276,50 @@ def test_backward_edges_are_only_potential_gates(built):
     ]
     assert all(e.kind is EdgeKind.POTENTIAL_GATE for e in backward)
     assert len(backward) == BACKWARD_GATE_EDGES
+    # Every backward gate reaches down from a higher tier; that is the whole
+    # reason it is allowed to run this way.
+    records = graph.records
+    assert all(records[e.source].tier > records[e.target].tier for e in backward)
+
+
+@pytest.mark.corpus
+def test_nothing_sits_level_with_something_it_depends_on(built):
+    """The rule the tier-aware gate constraint exists to enforce."""
+    graph, layout = built
+    columns = _columns(layout)
+    level = [
+        e
+        for e in graph.edges
+        if e.source in columns
+        and e.target in columns
+        and columns[e.source] == columns[e.target]
+    ]
+    assert level == []
+
+
+@pytest.mark.corpus
+def test_negative_mass_chain_sits_right_of_its_gate(built):
+    """The reported case: both gated weapons were level with their gate."""
+    _, layout = built
+    columns = _columns(layout)
+    gate = columns["tech_qnm_utilities"]
+    assert columns["tech_qnm_disruptors"] > gate
+    assert columns["tech_sm_autocannons"] > gate
+
+
+@pytest.mark.corpus
+def test_ehof_sentient_tiers_are_not_ordered_by_galaxy_state_checks(built):
+    """Their potentials ask what *any* country has researched, not this one.
+
+    Treated as dependencies those references reverse the chain, placing tier 1
+    to the right of tier 4.
+    """
+    graph, layout = built
+    columns = _columns(layout)
+    tiers = [f"tech_ehof_sentient_tier_{n}" for n in range(1, 8)]
+    assert len({columns[k] for k in tiers}) == 1
+    for key in tiers:
+        assert graph.incoming(key) == []
 
 
 @pytest.mark.corpus

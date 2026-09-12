@@ -23,6 +23,13 @@ Band starts come from tier-internal chain depth only, computed before any
 column is assigned, which makes the whole thing a single deterministic pass over
 a topological order rather than a fixpoint.
 
+``prereqs(t)`` above means every edge that constrains the column, which is all
+hard prerequisites and OR alternatives plus the *forward* potential-gates --
+those reaching a technology from a tier no higher than its own. Gates arriving
+from a higher tier are an alternative route in rather than a step along a chain,
+and are the one case allowed to sit level or run right to left. See
+:func:`_constrains_column`.
+
 Repeatables are lifted out into a terminal band on the far right regardless of
 declared tier. Verified safe: no edge of any kind leaves a repeatable, so they
 are true sinks and moving them cannot place anything left of its prerequisite.
@@ -46,7 +53,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Iterator
 
-from .graph import EdgeKind, TechGraph
+from .graph import Edge, EdgeKind, TechGraph
 from .records import AREAS, TechnologyRecord
 from .rows import RowAssignment
 
@@ -59,19 +66,46 @@ CRISIS_GROUP = "crisis"
 AREA_ORDER = {area: index for index, area in enumerate(AREAS)}
 AREA_ORDER[CRISIS_GROUP] = len(AREAS)
 
-#: Edge kinds that constrain horizontal position.
-#:
-#: Deliberately excludes ``potential-gate``. Such an edge gates whether a
-#: technology exists for an empire at all, not the order it is researched in,
-#: and 7 of the 27 in the corpus run from a higher tier to a lower one. Letting
-#: them push columns produces nonsense: ``tech_missiles_1`` is tier 0, and its
-#: only incoming edge is a potential-gate from tier-5 ``tech_cosmogenesis_escort``
-#: (bio-ship empires can field missiles only via Cosmogenesis). Constraining on
-#: it drags the entire missile and torpedo chain to column 20 and beyond.
-#:
-#: Those edges are still drawn, in their own style, and are simply allowed to
-#: run backward.
+#: Edge kinds that constrain horizontal position whatever the tiers involved.
+#: A ``potential-gate`` constrains conditionally; see :func:`_constrains_column`.
 COLUMN_CONSTRAINT_KINDS = (EdgeKind.PREREQUISITE, EdgeKind.ALTERNATIVE)
+
+
+def _constrains_column(edge: Edge, records: dict[str, TechnologyRecord]) -> bool:
+    """Whether ``edge`` forces its target to sit right of its source.
+
+    Prerequisites and OR alternatives always do: they are research order.
+
+    A ``potential-gate`` does only when it runs forward, from a tier no higher
+    than its target's. The kind is genuinely mixed, and splitting it on tier is
+    what lets both halves read correctly:
+
+    * ``tech_qnm_utilities`` (Negative Mass Enhancements, tier 5) gates
+      ``tech_qnm_disruptors`` and ``tech_sm_autocannons``, both tier 5. The
+      reader has to hold the first to see the others, so level-pegging them
+      draws a dependency that appears to point at nothing. 20 of the 23 gates
+      in the corpus are like this.
+    * ``tech_cosmogenesis_escort`` (tier 5) gates ``tech_missiles_1`` (tier 0),
+      because bio-ship empires can field missiles only via Cosmogenesis.
+      Constraining on that drags the entire missile and torpedo chain to
+      column 20 and beyond. The remaining 3 gates run backward like this and
+      stay unconstrained, drawn in their own style and allowed to run right to
+      left.
+
+    Tier is the right discriminator because it is the game's own statement of
+    research depth: a gate from a lower or equal tier is describing a step
+    forward, and one from a higher tier is describing an alternative route in
+    from somewhere else entirely.
+    """
+    if edge.kind in COLUMN_CONSTRAINT_KINDS:
+        return True
+    if edge.kind is not EdgeKind.POTENTIAL_GATE:
+        return False
+    source = records.get(edge.source)
+    target = records.get(edge.target)
+    if source is None or target is None:
+        return False
+    return source.tier <= target.tier
 
 
 class LayoutError(RuntimeError):
@@ -218,7 +252,6 @@ def _tier_band_starts(graph: TechGraph, records: dict[str, TechnologyRecord]) ->
     they are about to permit, which is what makes column assignment a single
     pass rather than a fixpoint.
     """
-    constrained = set(COLUMN_CONSTRAINT_KINDS)
     by_tier: dict[int, list[str]] = defaultdict(list)
     for key, record in records.items():
         if not record.is_repeatable:
@@ -235,7 +268,7 @@ def _tier_band_starts(graph: TechGraph, records: dict[str, TechnologyRecord]) ->
             if key not in members:
                 continue
             for edge in graph.incoming(key):
-                if edge.kind in constrained and edge.source in members:
+                if edge.source in members and _constrains_column(edge, records):
                     depth[key] = max(depth[key], depth[edge.source] + 1)
         width = max(depth.values(), default=0) + 1
         bands[tier] = Band(tier=tier, start=cursor, end=cursor + width - 1)
@@ -266,7 +299,7 @@ def build(graph: TechGraph, rows: RowAssignment | None = None) -> Layout:
         band = bands.get(record.tier)
         floor = band.start if band else 0
         for edge in graph.incoming(key):
-            if edge.kind in COLUMN_CONSTRAINT_KINDS and edge.source in column:
+            if edge.source in column and _constrains_column(edge, records):
                 floor = max(floor, column[edge.source] + 1)
         column[key] = floor
 
@@ -333,8 +366,8 @@ def check_invariants(layout: Layout, graph: TechGraph) -> list[str]:
     columns = {s.technology: s.column for s in layout.slots}
 
     for edge in graph.edges:
-        if edge.kind not in COLUMN_CONSTRAINT_KINDS:
-            continue  # potential-gate edges are permitted to run backward
+        if not _constrains_column(edge, graph.records):
+            continue  # backward potential-gates are permitted to run right to left
         if edge.source not in columns or edge.target not in columns:
             continue
         if columns[edge.source] >= columns[edge.target]:
