@@ -9,21 +9,21 @@ import pytest
 from pipeline import icons as icons_mod
 from pipeline.icons import Fallback, IconIndex, PLACEHOLDER_STEM
 
-#: Technologies with no ``<key>.dds`` anywhere in vanilla or Gigastructures.
-#: Verified absent rather than merely misnamed: none has a near-miss under
-#: another name and none is hiding in ``old_tech_icons/``.
+#: Technologies with neither a ``<key>.dds`` nor a usable declared ``icon``.
+#: All three are Gigastructures; no vanilla technology lacks an icon.
 MISSING_ICON_KEYS = {
-    "giga_tech_arkship_neutronium_harvester",
     "giga_tech_planetary_matter_dumping",
-    "giga_tech_psychic_hypersiphon",
     "giga_tech_repeatable_dyson_swarm_cap",
     "giga_tech_repeatable_observatory_cap",
-    "giga_tech_shroud_conduit",
-    "tech_archeology_lab_ancrel",
-    "tech_mine_exotic_gases",
-    "tech_mine_volatile_motes",
-    "tech_nomads_mechanized_mining",
-    "tech_robot_assembly_complex",
+}
+
+#: Technologies that point at another technology's art via ``icon =``. Sampled,
+#: not exhaustive; 15 technologies use the field.
+DECLARED_ICONS = {
+    "giga_tech_arkship_neutronium_harvester": "giga_tech_neutronium_gigaforge",
+    "tech_robot_assembly_complex": "tech_mega_assembly",
+    "tech_mine_exotic_gases": "tech_exotic_gases",
+    "tech_archeology_lab_ancrel": "tech_archeology_lab",
 }
 
 #: The one swap that declares its own art and ships none.
@@ -46,6 +46,28 @@ def test_technology_icon_is_found_by_key_convention():
     ref = index.technology("tech_lasers_1")
     assert ref.is_exact and ref.stem == "tech_lasers_1"
     assert index.fallbacks == []
+
+
+def test_declared_icon_wins_over_the_key_convention():
+    """For these technologies the declared icon is the only art that exists."""
+    index = _index(tech_mega_assembly="", unknown="")
+    ref = index.technology("tech_robot_assembly_complex", "tech_mega_assembly")
+    assert ref.is_exact
+    assert ref.stem == "tech_mega_assembly"
+    assert index.fallbacks == []
+
+
+def test_declared_icon_is_preferred_even_when_a_key_named_file_exists():
+    index = _index(tech_a="", tech_b="")
+    assert index.technology("tech_a", "tech_b").stem == "tech_b"
+
+
+def test_declared_icon_that_does_not_exist_is_reported_then_falls_through():
+    """A broken icon reference is a data error, but the convention may still work."""
+    index = _index(tech_a="", unknown="")
+    ref = index.technology("tech_a", "tech_nonexistent")
+    assert ref.stem == "tech_a"
+    assert [r.fallback for r in index.fallbacks] == [Fallback.DECLARED_ICON_MISSING]
 
 
 def test_missing_icon_falls_back_to_the_vanilla_placeholder():
@@ -72,6 +94,18 @@ def test_swap_with_inherit_icon_uses_the_parent_and_is_not_a_fallback():
     assert index.fallbacks == []
 
 
+def test_inheriting_swap_picks_up_the_parents_declared_icon():
+    """Inheritance must follow the parent's resolution, not just its key."""
+    index = _index(tech_mega_assembly="", unknown="")
+    ref = index.swap(
+        "tech_robot_assembly_complex",
+        "swap_name",
+        inherit_icon=True,
+        declared_icon="tech_mega_assembly",
+    )
+    assert ref.is_exact and ref.stem == "tech_mega_assembly"
+
+
 def test_swap_with_own_icon_uses_it():
     index = _index(tech_lasers_1="", tech_bio_lasers_1="")
     ref = index.swap("tech_lasers_1", "tech_bio_lasers_1", inherit_icon=False)
@@ -84,6 +118,18 @@ def test_swap_claiming_own_icon_without_shipping_it_falls_back_to_parent():
     ref = index.swap(*SWAP_WITHOUT_ICON, inherit_icon=False)
     assert ref.fallback is Fallback.SWAP_TO_PARENT
     assert ref.stem == "tech_ring_world"
+
+
+def test_swap_fallback_to_parent_honours_the_parents_declared_icon():
+    index = _index(tech_mega_assembly="", unknown="")
+    ref = index.swap(
+        "tech_robot_assembly_complex",
+        "swap_without_art",
+        inherit_icon=False,
+        declared_icon="tech_mega_assembly",
+    )
+    assert ref.fallback is Fallback.SWAP_TO_PARENT
+    assert ref.stem == "tech_mega_assembly"
 
 
 def test_swap_falls_through_to_placeholder_when_parent_is_also_missing():
@@ -149,12 +195,13 @@ def resolved(install, gigas_root: Path):
 
     index = icons_mod.build_index(load_order)
     for key, block in sorted(technologies.items()):
-        index.technology(key)
+        declared = block.scalar_text("icon")
+        index.technology(key, declared)
         for swap in block.get_all("technology_swap"):
             name = swap.scalar_text("name")
             if name:
                 inherit = (swap.scalar_text("inherit_icon") or "yes").lower() != "no"
-                index.swap(key, name, inherit_icon=inherit)
+                index.swap(key, name, inherit_icon=inherit, declared_icon=declared)
     return index, technologies
 
 
@@ -193,8 +240,40 @@ def test_only_one_swap_claims_art_it_does_not_ship(resolved):
 def test_every_technology_resolves_to_a_real_file(resolved):
     """The point of the fallback chain: no technology renders a hole."""
     index, technologies = resolved
-    unresolved = [k for k in technologies if index.technology(k).is_missing]
+    unresolved = [
+        key
+        for key, block in technologies.items()
+        if index.technology(key, block.scalar_text("icon")).is_missing
+    ]
     assert unresolved == []
+
+
+@pytest.mark.corpus
+def test_no_vanilla_technology_lacks_an_icon(resolved):
+    """Every vanilla gap is covered by an explicit ``icon`` field."""
+    index, _ = resolved
+    assert [k for k in index.missing_icon_keys() if not k.startswith("giga_")] == []
+
+
+@pytest.mark.corpus
+def test_declared_icons_all_resolve_to_real_files(resolved):
+    """No technology points at art that does not exist."""
+    index, _ = resolved
+    broken = [
+        ref.requested
+        for ref in index.fallbacks
+        if ref.fallback is Fallback.DECLARED_ICON_MISSING
+    ]
+    assert broken == []
+
+
+@pytest.mark.corpus
+@pytest.mark.parametrize("tech_key,expected", sorted(DECLARED_ICONS.items()))
+def test_known_declared_icons_are_honoured(resolved, tech_key: str, expected: str):
+    index, technologies = resolved
+    ref = index.technology(tech_key, technologies[tech_key].scalar_text("icon"))
+    assert ref.stem == expected
+    assert ref.is_exact
 
 
 @pytest.mark.corpus

@@ -40,30 +40,30 @@ therefore collide.
 **Handling:** upstream bug. Surface it in the validation report rather than
 silently deduplicating. Not yet implemented.
 
-### 4. Missing technology icons (vanilla and Gigastructures)
+### 4. Missing technology icons (Gigastructures only)
 
-Technology icons are resolved purely by convention from the key
-(`gfx/interface/icons/technologies/<key>.dds`); no technology declares an `icon`
-field. Twelve resolutions in the current corpus have no matching file. None is a
-near-miss under another name and none is hiding in `old_tech_icons/`, so these
-are genuinely absent rather than misnamed.
+Technology icons resolve in two ways: from an explicit `icon = <stem>` field
+when the technology declares one (15 do), and otherwise by convention from the
+key, `gfx/interface/icons/technologies/<key>.dds`.
 
-**Eleven technologies have no icon** — note that five are vanilla, so this is not
-only a mod issue:
+The `icon` field is how several technologies share one piece of art -- for
+example `tech_robot_assembly_complex` points at `tech_mega_assembly`, and
+`giga_tech_arkship_neutronium_harvester` at `giga_tech_neutronium_gigaforge`.
+For those technologies it is the *only* art that exists, so a resolver that
+honours only the key convention reports eleven technologies as missing when in
+fact three are.
 
-| Key | Source |
-| --- | --- |
-| `giga_tech_arkship_neutronium_harvester` | Gigastructures |
-| `giga_tech_planetary_matter_dumping` | Gigastructures |
-| `giga_tech_psychic_hypersiphon` | Gigastructures |
-| `giga_tech_repeatable_dyson_swarm_cap` | Gigastructures |
-| `giga_tech_repeatable_observatory_cap` | Gigastructures |
-| `giga_tech_shroud_conduit` | Gigastructures |
-| `tech_archeology_lab_ancrel` | vanilla |
-| `tech_mine_exotic_gases` | vanilla |
-| `tech_mine_volatile_motes` | vanilla |
-| `tech_nomads_mechanized_mining` | vanilla |
-| `tech_robot_assembly_complex` | vanilla |
+**No vanilla technology lacks an icon.** Every apparent vanilla gap is covered by
+an explicit `icon` field. Every declared icon in the corpus resolves to a real
+file.
+
+Three Gigastructures technologies genuinely have neither:
+
+| Key |
+| --- |
+| `giga_tech_planetary_matter_dumping` |
+| `giga_tech_repeatable_dyson_swarm_cap` |
+| `giga_tech_repeatable_observatory_cap` |
 
 **One swap declares its own art and ships none:**
 `giga_tech_ring_world_swap_no_habitables` (`zz_giga_tech_overwrites.txt:51`) sets
@@ -72,15 +72,20 @@ only a mod issue:
 
 **Handling:** implemented in `pipeline/icons.py`.
 
-- A swap that claims its own art but ships none falls back to the **parent
-  technology's** icon. A renamed variant of a technology should stay
-  recognisable, which the generic placeholder would not achieve.
+- An explicit `icon` field wins over the key convention. A declared icon that
+  does not exist is recorded as its own fallback reason and then falls through
+  to the convention, rather than being silently ignored.
+- A swap that claims its own art but ships none falls back to the parent
+  technology's *resolved* icon, so a renamed variant stays recognisable and
+  inherits the parent's declared icon where there is one. This applies only when
+  the parent resolved exactly; if the parent is itself missing art, the swap
+  reports a placeholder rather than claiming a successful inheritance.
 - Anything still unresolved falls back to vanilla's own placeholder,
   `technologies/unknown.dds`, which the game registers as
   `GFX_technology_unknown` in `interface/technology_view.gfx`.
-- Every fallback is recorded and deduplicated; `IconIndex.missing_icon_keys()`
-  is the worklist. A silent placeholder is indistinguishable from a sparse
-  checkout that fetched nothing, so it is never applied quietly.
+- Fallbacks are recorded and deduplicated; `IconIndex.missing_icon_keys()` is
+  the worklist. A silent placeholder is indistinguishable from a sparse checkout
+  that fetched nothing, so it is never applied quietly.
 
 The set above is pinned in `tests/test_icons.py`. If a fix upstream adds art,
 delete the key from both places rather than loosening the assertion.

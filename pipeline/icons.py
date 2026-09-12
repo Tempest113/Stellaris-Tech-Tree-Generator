@@ -1,18 +1,23 @@
 """Resolve technology and ascension perk icons.
 
-Technology icons are never declared. A technology carries no ``icon`` field
-anywhere in the corpus, so the file is found purely by convention:
-``gfx/interface/icons/technologies/<key>.dds``. A ``technology_swap`` changes
-which key is used, via ``inherit_icon``:
+Most technology icons are found by convention -- ``<key>.dds`` under
+``gfx/interface/icons/technologies`` -- but a technology may also name one
+explicitly with ``icon = <stem>``, and 15 of them do. That field is how several
+technologies share a single piece of art (``tech_robot_assembly_complex`` points
+at ``tech_mega_assembly``) and it is the *only* icon those technologies have, so
+ignoring it reports them as missing when they are not.
+
+A ``technology_swap`` redirects the lookup via ``inherit_icon``:
 
 * ``inherit_icon = no``  -> ``<swap name>.dds``
-* ``inherit_icon = yes`` -> the parent technology's icon
+* ``inherit_icon = yes`` -> the parent technology's resolved icon
 * omitted                -> behaves as inherit
 
-Some icons are simply absent, in both vanilla and mods. Twelve cases exist in
-the current corpus and none of them are near-misses under another name, so
-guessing would be worse than admitting it: resolution falls back to vanilla's
-own placeholder, ``technologies/unknown.dds``, which the game registers as
+Swaps never declare an ``icon`` field themselves; there are no such cases in the
+corpus.
+
+A few icons are still genuinely absent. Resolution falls back to vanilla's own
+placeholder, ``technologies/unknown.dds``, which the game registers as
 ``GFX_technology_unknown`` in ``interface/technology_view.gfx``.
 
 Every fallback is recorded rather than applied silently. A missing icon is
@@ -42,6 +47,8 @@ class Fallback(enum.Enum):
     #: A swap declared ``inherit_icon = no`` but shipped no icon of its own, so
     #: the parent technology's icon is used instead.
     SWAP_TO_PARENT = "swap-to-parent"
+    #: A technology declared ``icon = X`` but no ``X.dds`` exists.
+    DECLARED_ICON_MISSING = "declared-icon-missing"
     #: Nothing matched; vanilla's placeholder is used.
     PLACEHOLDER = "placeholder"
     #: Nothing matched and no placeholder exists either.
@@ -111,21 +118,48 @@ class IconIndex:
             IconRef(requested, PLACEHOLDER_STEM, placeholder, Fallback.PLACEHOLDER)
         )
 
-    def technology(self, tech_key: str) -> IconRef:
-        """Resolve a technology's own icon."""
+    def technology(self, tech_key: str, declared_icon: str | None = None) -> IconRef:
+        """Resolve a technology's icon.
+
+        ``declared_icon`` is the technology's own ``icon`` field when it has
+        one. It wins over the key convention, because for those technologies it
+        is the only art that exists -- ``tech_robot_assembly_complex`` has no
+        ``tech_robot_assembly_complex.dds`` and never will; it points at
+        ``tech_mega_assembly``.
+
+        The caller supplies it rather than the index reading a record, so this
+        module stays independent of how technologies are represented.
+        """
+        if declared_icon:
+            path = self.technologies.get(declared_icon)
+            if path is not None:
+                return IconRef(tech_key, declared_icon, path)
+            # A declared icon that does not exist is a data error worth seeing;
+            # the convention is still worth trying before giving up.
+            self._record(
+                IconRef(declared_icon, None, None, Fallback.DECLARED_ICON_MISSING)
+            )
+
         path = self.technologies.get(tech_key)
         if path is not None:
             return IconRef(tech_key, tech_key, path)
         return self._placeholder_ref(tech_key)
 
-    def swap(self, tech_key: str, swap_name: str, *, inherit_icon: bool) -> IconRef:
+    def swap(
+        self,
+        tech_key: str,
+        swap_name: str,
+        *,
+        inherit_icon: bool,
+        declared_icon: str | None = None,
+    ) -> IconRef:
         """Resolve the icon shown when a ``technology_swap`` is active.
 
         ``inherit_icon = yes`` is the common case and simply reuses the parent's
-        icon, which is why most swaps ship no art of their own.
+        resolved icon, which is why most swaps ship no art of their own.
         """
         if inherit_icon:
-            return self.technology(tech_key)
+            return self.technology(tech_key, declared_icon)
 
         path = self.technologies.get(swap_name)
         if path is not None:
@@ -134,10 +168,14 @@ class IconIndex:
         # The swap claimed its own art and did not ship it. Preferring the
         # parent's icon over the placeholder keeps the card recognisable, and is
         # what the reader expects from a renamed variant of the same technology.
-        parent = self.technologies.get(tech_key)
-        if parent is not None:
+        # Test for an *exact* parent resolution, not merely a usable one: if the
+        # parent itself fell back to the placeholder, reporting this as
+        # "inherited the parent's icon" would be a lie that hides two data bugs
+        # behind one reassuring label.
+        parent = self.technology(tech_key, declared_icon)
+        if parent.is_exact:
             return self._record(
-                IconRef(swap_name, tech_key, parent, Fallback.SWAP_TO_PARENT)
+                IconRef(swap_name, parent.stem, parent.path, Fallback.SWAP_TO_PARENT)
             )
         return self._placeholder_ref(swap_name)
 
