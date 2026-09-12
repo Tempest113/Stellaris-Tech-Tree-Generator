@@ -12,11 +12,12 @@ export type Area = "physics" | "society" | "engineering" | "crisis";
 export type NodeFlag =
   | "dangerous"
   | "rare"
-  | "weightless"
+  | "undrawable"
   | "start"
   | "spilled"
   | "variant"
-  | "perk-gated";
+  | "perk-gated"
+  | "perk-inherited";
 
 /** Index into `dataset.edgeKinds`. */
 export const EDGE_PREREQUISITE = 0;
@@ -35,6 +36,10 @@ export interface RawNode {
   a: Area;
   g: string;
   ic: number;
+  /** Swap name, on a slot presenting a relocating `technology_swap`. */
+  sw?: string;
+  /** Atlas slot of the perk badge; -1 when the perk ships no art. */
+  pb?: number;
   f?: NodeFlag[];
   $?: number;
   lv?: number;
@@ -81,13 +86,15 @@ export interface RawDataset {
   repeatableColumn: number;
   columns: number;
   nodes: RawNode[];
-  /** `[sourceNodeIndex, targetNodeIndex, edgeKind]` */
+  /** `[sourceNodeIndex, targetNodeIndex, edgeKind]`, indices into `nodes`. */
   edges: [number, number, number][];
 }
 
 /** A node with its flags expanded and its adjacency resolved. */
 export interface TechNode {
   key: string;
+  /** The relocating swap this slot presents, if any. Details are keyed by it. */
+  swap?: string;
   name: string;
   row: number;
   column: number;
@@ -101,12 +108,18 @@ export interface TechNode {
   levels?: number;
   dangerous: boolean;
   rare: boolean;
-  weightless: boolean;
+  /** Never offered for research on its own merits. */
+  undrawable: boolean;
   isStart: boolean;
   spilled: boolean;
-  /** Behind at least one ascension perk. Independent of `weightless`: a
-   *  technology can be perk-gated and event-granted at once. */
+  /** Behind at least one ascension perk, declared or inherited. Independent
+   *  of `undrawable`: a technology can be perk-gated and event-granted at once. */
   perkGated: boolean;
+  /** Every gate is inherited through a prerequisite; none is declared here. */
+  perkInherited: boolean;
+  /** Atlas slot for the card's perk badge: -1 for a perk without art,
+   *  `undefined` for no badge at all. */
+  perkBadge?: number;
   /** A second slot for a technology a swap relocates; not its own technology. */
   variant: boolean;
   /** Indices of nodes this one depends on. */
@@ -127,6 +140,7 @@ export function expand(raw: RawDataset): Dataset {
 
   const nodes: TechNode[] = raw.nodes.map((node) => ({
     key: node.k,
+    swap: node.sw,
     name: node.n,
     row: node.r,
     column: node.c,
@@ -140,10 +154,12 @@ export function expand(raw: RawDataset): Dataset {
     levels: node.lv,
     dangerous: flags(node, "dangerous"),
     rare: flags(node, "rare"),
-    weightless: flags(node, "weightless"),
+    undrawable: flags(node, "undrawable"),
     isStart: flags(node, "start"),
     spilled: flags(node, "spilled"),
     perkGated: flags(node, "perk-gated"),
+    perkInherited: flags(node, "perk-inherited"),
+    perkBadge: node.pb,
     variant: flags(node, "variant"),
     incoming: [],
     outgoing: [],

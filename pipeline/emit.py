@@ -17,16 +17,19 @@ the bytes.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import gates as gates_mod
 from . import geometry as geom
+from .clausewitz import Block, serialize
 from .graph import EdgeKind, TechGraph
 from .icons import IconIndex, load_image
-from .layout import CRISIS_GROUP, Layout
+from .layout import Layout, Slot
 from .localisation import Localisation
-from .records import Extraction
+from .records import Extraction, TechnologyRecord
 from .rows import RowAssignment
 
 #: Icons are 52-58px in the corpus, so 56 is close to native for most and keeps
@@ -95,6 +98,62 @@ def build_atlas(
     return slots, names
 
 
+def slot_profile(record: TechnologyRecord, slot: Slot) -> frozenset[str]:
+    """The empire conditions under which ``slot`` is the one on screen.
+
+    A primary slot has none. A variant slot has its swap's trigger, broken into
+    its top-level conditions -- an implicit AND -- and rendered to canonical text
+    so two swaps asking the same thing compare equal.
+    """
+    if slot.swap is None:
+        return frozenset()
+    swap = record.swap_named(slot.swap)
+    if swap is None or swap.trigger is None:
+        return frozenset()
+    return frozenset(serialize(Block(items=[item])).strip() for item in swap.trigger.items)
+
+
+def wire_edges(
+    graph: TechGraph, slots: list[Slot], profiles: list[frozenset[str]]
+) -> list[list[int]]:
+    """Dependency edges as ``[source slot, target slot, kind]``.
+
+    Edges are between technologies but cards are slots, and nine technologies
+    have more than one slot. Every slot of a target gets its edge, since every
+    presentation of a technology has the same prerequisites. Which *source*
+    slot it comes from is chosen by profile: the source slot visible under the
+    most specific conditions the target slot's own conditions imply. A
+    bio-ship empire's Improved Fighter Wing therefore draws from Basic Fighter
+    Wing in society/biology, not from Carrier Operations in engineering, while
+    anything with no bio-ship variant of its own draws from the primary slot.
+
+    Without an empire profile to choose one presentation, that is the most
+    that can honestly be drawn: a primary target is not told which variant of
+    its prerequisite a given empire will see, so it points at the default.
+    """
+    by_technology: dict[str, list[int]] = defaultdict(list)
+    for index, slot in enumerate(slots):
+        by_technology[slot.technology].append(index)
+
+    edges: list[list[int]] = []
+    for edge in graph.edges:
+        sources = by_technology.get(edge.source)
+        targets = by_technology.get(edge.target)
+        if not sources or not targets:
+            continue
+        kind = EDGE_KINDS.index(edge.kind)
+        for target in targets:
+            wanted = profiles[target]
+            source = max(
+                (s for s in sources if profiles[s] <= wanted),
+                key=lambda s: (len(profiles[s]), -s),
+                default=None,
+            )
+            if source is not None:
+                edges.append([source, target, kind])
+    return edges
+
+
 def emit(
     extraction: Extraction,
     graph: TechGraph,
@@ -109,37 +168,60 @@ def emit(
 
     crisis_names = {c.key: c.name for c in (assignment.crises if assignment else ())}
     icons = extraction.icons
-    perk_gates = extraction.perk_gates
+    perk_gates = gates_mod.with_inherited(graph, extraction.perk_gates)
 
-    # Stable node order so diffs between builds are readable.
+    # Stable node order so diffs between builds are readable. Node index is
+    # position in this list, and nothing else may be used to address a node:
+    # numbering by technology instead drifted by one at every variant slot and
+    # drew 740 of 976 edges between the wrong cards.
     slots = sorted(layout.slots, key=lambda s: (s.row.area, s.row.category, s.column, s.cell_index))
-    index_of: dict[str, int] = {}
-    for slot in slots:
-        index_of.setdefault(slot.technology, len(index_of))
 
     row_index = {row.key: row.index for row in layout.rows}
     boxes = geom.build(layout)
     used_icon_stems: list[str] = []
     nodes = []
+    profiles: list[frozenset[str]] = []
 
     for slot in slots:
         record = extraction[slot.technology]
-        icon = record.icon(icons) if icons else None
+        swap = record.swap_named(slot.swap) if slot.swap else None
+        profiles.append(slot_profile(record, slot))
+
+        # A variant slot is what its empires actually see, so it wears the
+        # swap's name and art rather than the default presentation's.
+        if swap is not None:
+            name = localisation.get(swap.name) or localisation.name(slot.technology)
+            icon = (
+                icons.swap(
+                    slot.technology,
+                    swap.name,
+                    inherit_icon=swap.inherit_icon,
+                    declared_icon=record.declared_icon,
+                )
+                if icons
+                else None
+            )
+        else:
+            name = localisation.name(slot.technology)
+            icon = record.icon(icons) if icons else None
         stem = icon.stem if icon and icon.stem else ""
         if stem:
             used_icon_stems.append(stem)
 
+        gates = perk_gates.get(slot.technology, ())
         flags = []
         if record.is_dangerous:
             flags.append("dangerous")
         if record.is_rare:
             flags.append("rare")
-        if record.is_weightless:
-            flags.append("weightless")
-        if perk_gates.get(slot.technology):
-            # Two separate facts. A technology can be perk-gated and still
+        if record.is_undrawable:
+            flags.append("undrawable")
+        if gates:
+            # Separate from undrawable: a technology can be perk-gated and still
             # event-granted, and the panel says which applies.
             flags.append("perk-gated")
+            if all(g.is_inherited for g in gates):
+                flags.append("perk-inherited")
         if record.start_tech:
             flags.append("start")
         if slot.spilled:
@@ -150,17 +232,19 @@ def emit(
         box = boxes.nodes[(slot.technology, row_index[slot.row])]
         node = {
             "k": slot.technology,
-            "n": localisation.name(slot.technology),
+            "n": name,
             "r": row_index[slot.row],
             "c": slot.column,
             "i": slot.cell_index,
             "x": box.x,
             "y": box.y,
             "t": slot.tier,
-            "a": record.area,
+            "a": swap.area if swap and swap.area else record.area,
             "g": record.category or "",
             "ic": stem,
         }
+        if swap is not None:
+            node["sw"] = swap.name
         if flags:
             node["f"] = flags
         if record.cost is not None:
@@ -177,7 +261,7 @@ def emit(
                     if perk in perk_icons:
                         continue
                     ref = icons.ascension_perk(perk)
-                    if ref.stem:
+                    if ref.stem and ref.is_exact:
                         perk_icons[perk] = ref.stem
                         used_icon_stems.append(ref.stem)
 
@@ -185,11 +269,23 @@ def emit(
     for node in nodes:
         node["ic"] = slot_stems.get(node["ic"], -1)
 
-    edges = [
-        [index_of[e.source], index_of[e.target], EDGE_KINDS.index(e.kind)]
-        for e in graph.edges
-        if e.source in index_of and e.target in index_of
-    ]
+    def perk_icon(gate: gates_mod.PerkGate) -> int:
+        """Atlas slot for the first perk in ``gate`` that ships art, or -1."""
+        for perk in gate.perks:
+            slot = slot_stems.get(perk_icons.get(perk, ""), -1)
+            if slot >= 0:
+                return slot
+        return -1
+
+    # The card badge: one perk, from the strongest gate. Declared before
+    # inherited, so a card never names a gate it merely passes along when it
+    # has one of its own.
+    for node in nodes:
+        badge = gates_mod.strongest(perk_gates.get(node["k"], ()))
+        if badge is not None:
+            node["pb"] = perk_icon(badge)
+
+    edges = wire_edges(graph, slots, profiles)
 
     dataset = {
         "meta": {
@@ -266,34 +362,45 @@ def emit(
         payload = []
         for gate in perk_gates.get(key, ()):
             names: list[str] = []
-            slots: list[int] = []
+            icon_slots: list[int] = []
             for perk in gate.perks:
                 name = localisation.name(perk)
-                slot = slot_stems.get(perk_icons.get(perk, ""), -1)
+                icon_slot = slot_stems.get(perk_icons.get(perk, ""), -1)
                 if name in names:
                     # Same perk under another name-sharing key. Keep whichever
                     # one ships art: the three DLC-conditional Galactic Wonders
                     # keys have none of their own and reuse the base perk's.
                     at = names.index(name)
-                    if slots[at] < 0:
-                        slots[at] = slot
+                    if icon_slots[at] < 0:
+                        icon_slots[at] = icon_slot
                     continue
                 names.append(name)
-                slots.append(slot)
-            payload.append({"k": gate.kind.value, "n": names, "i": slots})
+                icon_slots.append(icon_slot)
+            entry = {"k": gate.kind.value, "n": names, "i": icon_slots}
+            if gate.inherited_from:
+                entry["v"] = localisation.name(gate.inherited_from)
+            payload.append(entry)
         return payload
 
     details = {}
     for node in nodes:
         key = node["k"]
+        record = extraction[key]
         entry = {
             "d": localisation.description(key),
-            "p": [list(group.options) for group in extraction[key].prerequisites],
+            "p": [list(group.options) for group in record.prerequisites],
         }
         gates = gate_payload(key)
-        if gates:  # 82 of 978 technologies; omitted elsewhere to keep this small
+        if gates:  # most technologies have none; omitted to keep this small
             entry["ap"] = gates
         details[key] = entry
+        # A variant slot opens under its swap's name, and its description is
+        # the one its empires read.
+        if "sw" in node:
+            details[node["sw"]] = {
+                **entry,
+                "d": localisation.description(node["sw"]) or entry["d"],
+            }
 
     files: dict[str, int] = {}
     for name, payload in (("dataset.json", dataset), ("details.json", details)):

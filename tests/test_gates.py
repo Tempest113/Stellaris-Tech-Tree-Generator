@@ -12,8 +12,10 @@ from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import build_record, extract
 from pipeline.triggers import TriggerIndex
 
-#: Technologies behind at least one ascension perk.
-GATED_COUNT = 82
+#: Technologies declaring at least one ascension perk gate.
+GATED_COUNT = 85
+#: Technologies with no gate of their own that inherit one through what they need.
+INHERITED_ONLY_COUNT = 43
 #: Distinct perk keys doing the gating. Higher than the number of perks a player
 #: would name, because Galactic Wonders ships four DLC-conditional keys.
 GATING_PERK_COUNT = 20
@@ -192,6 +194,94 @@ def test_alternatives_inside_the_single_condition_are_kept():
     assert gates[0].perks == ("ap_x",)
 
 
+def test_a_grant_gates_an_undrawable_technology():
+    record = _record("weight = 0", key="mega")
+    gates = perk_gates(record, grants={"mega": ("ap_wonders",)})
+    assert [(g.perks, g.kind) for g in gates] == [(("ap_wonders",), GateKind.GRANTED)]
+
+
+def test_a_grant_does_not_gate_a_drawable_technology():
+    """The perk is a shortcut there, not the only way in."""
+    record = _record("weight = 10", key="mega")
+    assert perk_gates(record, grants={"mega": ("ap_wonders",)}) == ()
+
+
+def test_an_unconditional_zero_modifier_makes_a_technology_undrawable():
+    """How vanilla writes Dyson Sphere: a real weight, then ``factor = 0``."""
+    record = _record("weight = 20 weight_modifier = { factor = 0 }", key="dyson")
+    assert record.is_undrawable
+    assert not record.is_weightless
+    gates = perk_gates(record, grants={"dyson": ("ap_wonders",)})
+    assert gates[0].kind is GateKind.GRANTED
+
+
+def test_grants_under_another_scope_are_not_collected():
+    from pipeline.gates import _collect_grants
+
+    block = parse(
+        "on_enabled = { add_research_option = mine "
+        "every_country = { add_research_option = theirs } }"
+    )
+    found: list[str] = []
+    _collect_grants(block, found)
+    assert found == ["mine"]
+
+
+def _graph(source: str):
+    from pipeline import graph as graph_mod
+    from pipeline.records import Extraction
+
+    extraction = Extraction()
+    for pair in parse(source).pairs():
+        extraction.technologies[pair.key] = build_record(pair.key, pair.value)
+    return graph_mod.build(extraction)
+
+
+def test_a_gate_is_inherited_through_a_hard_prerequisite():
+    from pipeline.gates import PerkGate, with_inherited
+
+    graph = _graph(
+        "a = { area = physics tier = 1 }\n"
+        "b = { area = physics tier = 2 prerequisites = { a } }\n"
+        "c = { area = physics tier = 3 prerequisites = { b } }\n",
+    )
+    own = {"a": (PerkGate(("ap_x",), GateKind.REQUIRED),)}
+    effective = with_inherited(graph, own)
+    assert effective["c"] == (PerkGate(("ap_x",), GateKind.REQUIRED, inherited_from="a"),)
+
+
+def test_an_or_group_passes_on_only_what_every_option_carries():
+    """One ungated option is a way round the gate."""
+    from pipeline.gates import PerkGate, with_inherited
+
+    graph = _graph(
+        "a = { area = physics tier = 1 }\n"
+        "b = { area = physics tier = 1 }\n"
+        "c = { area = physics tier = 2 prerequisites = { OR = { a b } } }\n",
+    )
+    own = {"a": (PerkGate(("ap_x",), GateKind.REQUIRED),)}
+    assert "c" not in with_inherited(graph, own)
+
+    both = {**own, "b": (PerkGate(("ap_x",), GateKind.REQUIRED),)}
+    assert with_inherited(graph, both)["c"][0].perks == ("ap_x",)
+
+
+def test_a_declared_gate_outranks_the_same_gate_inherited():
+    from pipeline.gates import PerkGate, strongest, with_inherited
+
+    graph = _graph(
+        "a = { area = physics tier = 1 }\n"
+        "b = { area = physics tier = 2 prerequisites = { a } }\n",
+    )
+    own = {
+        "a": (PerkGate(("ap_x",), GateKind.REQUIRED),),
+        "b": (PerkGate(("ap_x",), GateKind.UNDRAWABLE),),
+    }
+    gates = with_inherited(graph, own)["b"]
+    assert len(gates) == 1 and not gates[0].is_inherited
+    assert strongest(gates) is gates[0]
+
+
 def test_a_hard_gate_is_not_repeated_as_an_undrawable_one():
     """The Cosmogenesis lathe technologies state it both ways."""
     gates = perk_gates(
@@ -221,18 +311,78 @@ def test_gate_counts(built):
 
 
 @pytest.mark.corpus
-def test_the_perk_gate_is_not_the_weightless_flag(built):
+def test_the_perk_gate_is_not_the_undrawable_flag(built):
     """The two overlap but neither implies the other.
 
-    This is why "granted by event" was the wrong label: it was drawn from
-    ``weight == 0``, which is right for 171 technologies, wrong for 14 that are
-    perk-gated as well, and silent about 68 that are perk-gated only.
+    This is why "granted by event" cannot be the label for every technology
+    that is never drawn: it is right for 176, wrong for 18 that are perk-gated
+    as well, and says nothing about 67 that are perk-gated but drawable.
     """
     gated = set(built.perk_gates)
-    weightless = {k for k, r in built.technologies.items() if r.is_weightless}
-    assert len(weightless - gated) == 171
-    assert len(weightless & gated) == 14
-    assert len(gated - weightless) == 68
+    undrawable = {k for k, r in built.technologies.items() if r.is_undrawable}
+    assert len(undrawable - gated) == 176
+    assert len(undrawable & gated) == 18
+    assert len(gated - undrawable) == 67
+
+
+@pytest.mark.corpus
+def test_undrawable_catches_the_unconditional_zero_modifier(built):
+    """Nine technologies declare a weight and then zero it outright.
+
+    ``weight == 0`` alone misses them, so they carried neither an event label
+    nor, for the three Galactic Wonders grants, a perk gate.
+    """
+    extra = sorted(
+        k for k, r in built.technologies.items() if r.is_undrawable and not r.is_weightless
+    )
+    assert extra == [
+        "tech_btc_1",
+        "tech_dyson_sphere",
+        "tech_leviathan_techgenesis",
+        "tech_matter_decompressor",
+        "tech_nanite_autocannon",
+        "tech_nanite_flak_batteries",
+        "tech_nanite_repair_system",
+        "tech_regenerative_hull_tissue",
+        "tech_ring_world",
+    ]
+
+
+@pytest.mark.corpus
+def test_galactic_wonders_megastructures_are_perk_granted(built):
+    """They name no perk themselves; the perk adds them as research options."""
+    for key in ("tech_dyson_sphere", "tech_ring_world", "tech_matter_decompressor"):
+        gates = built.perk_gates[key]
+        assert [g.kind for g in gates] == [GateKind.GRANTED], key
+        assert all(p.startswith("ap_galactic_wonders") for p in gates[0].perks), key
+
+
+@pytest.mark.corpus
+def test_a_perk_offering_a_drawable_technology_early_is_not_a_gate(built):
+    """Galactic Wonders offers Mega-Engineering; any empire can draw it anyway."""
+    for key in ("tech_mega_engineering", "tech_habitat_2", "tech_habitat_3"):
+        assert key in built.perk_grants, key
+        assert key not in built.perk_gates, key
+
+
+@pytest.mark.corpus
+def test_the_qso_chain_inherits_its_gate_from_its_first_technology(install, gigas_root: Path):
+    from pipeline import graph as graph_mod
+    from pipeline.gates import with_inherited
+
+    load_order = (
+        LoadOrder()
+        .add(base_game_source(install.game, install.version))
+        .add(mod_source(gigas_root, key="gigas"))
+    )
+    extraction = extract(load_order)
+    effective = with_inherited(graph_mod.build(extraction), extraction.perk_gates)
+    for n in range(2, 7):
+        gates = effective[f"giga_tech_quasi_stellar_{n}"]
+        assert [(g.perks, g.inherited_from) for g in gates] == [
+            (("ap_qso",), "giga_tech_quasi_stellar_1")
+        ]
+    assert len(effective) - len(extraction.perk_gates) == INHERITED_ONLY_COUNT
 
 
 @pytest.mark.corpus

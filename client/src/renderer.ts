@@ -353,7 +353,7 @@ export class Renderer {
         if (node.variant) badges.push("variant");
         context.fillText(badges.join("  "), textX, node.y + card.h - 20);
 
-        if (node.weightless) {
+        if (node.undrawable) {
           context.fillStyle = FLAGS.weightless;
           context.fillText("event", node.x + card.w - 44, node.y + card.h - 20);
         } else if (node.rare) {

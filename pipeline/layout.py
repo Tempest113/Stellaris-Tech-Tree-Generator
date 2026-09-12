@@ -179,6 +179,9 @@ class Slot:
     #: True when the column lies outside the technology's own tier band, because
     #: a prerequisite in a higher tier pushed it right.
     spilled: bool
+    #: The relocating ``technology_swap`` this slot presents, for a variant
+    #: slot. ``None`` on the primary slot.
+    swap: str | None = None
 
 
 @dataclass
@@ -215,8 +218,10 @@ class Layout:
         )
 
 
-def _placement_rows(record: TechnologyRecord, rows: RowAssignment | None) -> list[RowKey]:
-    """Rows a technology occupies.
+def _placement_rows(
+    record: TechnologyRecord, rows: RowAssignment | None
+) -> list[tuple[RowKey, str | None]]:
+    """Rows a technology occupies, each with the swap that puts it there.
 
     A technology in a crisis occupies exactly that one row. Pulling it into a
     crisis band and *also* leaving it in its category row would double-count it
@@ -224,10 +229,10 @@ def _placement_rows(record: TechnologyRecord, rows: RowAssignment | None) -> lis
     """
     crisis = rows.crisis_of(record.key) if rows else None
     if crisis:
-        return [RowKey(CRISIS_GROUP, crisis)]
+        return [(RowKey(CRISIS_GROUP, crisis), None)]
     return [
-        RowKey(area, category)
-        for area, categories in record.placements
+        (RowKey(area, category), swap.name if swap else None)
+        for (area, categories), swap in record.placement_variants
         for category in (categories or ("uncategorised",))
     ]
 
@@ -236,7 +241,7 @@ def _row_keys(graph: TechGraph, rows: RowAssignment | None) -> list[RowKey]:
     """Every row any technology can occupy."""
     population: dict[RowKey, int] = defaultdict(int)
     for record in graph:
-        for key in _placement_rows(record, rows):
+        for key, _ in _placement_rows(record, rows):
             population[key] += 1
     return sorted(
         population,
@@ -316,16 +321,16 @@ def build(graph: TechGraph, rows: RowAssignment | None = None) -> Layout:
         raise LayoutError(f"{len(missing)} technologies were never assigned a column")
 
     # One slot per placement, all sharing the technology's column.
-    cells: dict[tuple[RowKey, int], list[tuple[str, bool]]] = defaultdict(list)
+    cells: dict[tuple[RowKey, int], list[tuple[str, bool, str | None]]] = defaultdict(list)
     for key in order:
         record = records[key]
         placement_rows = _placement_rows(record, rows)
-        for index, row_key in enumerate(placement_rows):
-            cells[(row_key, column[key])].append((key, index == 0))
+        for index, (row_key, swap) in enumerate(placement_rows):
+            cells[(row_key, column[key])].append((key, index == 0, swap))
 
     slots: list[Slot] = []
     for (row_key, col), members in cells.items():
-        for cell_index, (key, is_primary) in enumerate(members):
+        for cell_index, (key, is_primary, swap) in enumerate(members):
             record = records[key]
             band = bands.get(record.tier)
             slots.append(
@@ -338,6 +343,7 @@ def build(graph: TechGraph, rows: RowAssignment | None = None) -> Layout:
                     is_primary=is_primary,
                     is_repeatable=record.is_repeatable,
                     spilled=bool(band and not record.is_repeatable and not band.contains(col)),
+                    swap=swap,
                 )
             )
 

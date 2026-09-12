@@ -117,23 +117,37 @@ async function main(): Promise<void> {
 
   // -- detail panel ------------------------------------------------------
 
-  /** `ap` is a conjunction of gates; the names within one gate are alternatives. */
-  type PerkGate = { k: "required" | "undrawable"; n: string[]; i: number[] };
+  /**
+   * `ap` is a conjunction of gates; the names within one gate are alternatives.
+   * `v` names the technology a gate is inherited from, when it is inherited.
+   */
+  type PerkGate = {
+    k: "required" | "granted" | "undrawable";
+    n: string[];
+    i: number[];
+    v?: string;
+  };
   let details: Record<string, { d: string; p: string[][]; ap?: PerkGate[] }> | null = null;
   async function showPanel(index: number): Promise<void> {
     const node = data.nodes[index]!;
     if (!details) {
       details = (await fetch("data/details.json").then((r) => r.json())) as typeof details;
     }
-    const detail = details?.[node.key];
+    // A variant slot's details are its swap's: its own name and description.
+    const detail = details?.[node.swap ?? node.key] ?? details?.[node.key];
     const rowLabel = raw.rows[node.row]?.label ?? "";
     const prereqs = (detail?.p ?? [])
       .map((group) => group.map(nameOf).join(" <em>or</em> "))
       .map((line) => `<li>${line}</li>`)
       .join("");
-    const dependents = node.outgoing
+    // Across every slot of the technology, since a dependent without a variant
+    // of its own is wired to the primary slot only. One entry per name, so a
+    // dependent with several presentations is not listed once per slot.
+    const siblings = data.byKey.get(node.key) ?? [index];
+    const outgoing = siblings.flatMap((i) => data.nodes[i]!.outgoing);
+    const dependents = [...new Set(outgoing.map((i) => data.nodes[i]!.name))]
       .slice(0, 24)
-      .map((i) => `<li>${escapeHtml(data.nodes[i]!.name)}</li>`)
+      .map((name) => `<li>${escapeHtml(name)}</li>`)
       .join("");
 
     panel.innerHTML = `
@@ -148,8 +162,8 @@ async function main(): Promise<void> {
         ${node.dangerous ? '<span class="flag danger">Dangerous</span>' : ""}
         ${node.rare ? '<span class="flag rare">Rare</span>' : ""}
         ${perkFlag(detail?.ap)}
-        ${node.weightless && !node.perkGated ? '<span class="flag event">Not researchable – granted by event</span>' : ""}
-        ${node.weightless && node.perkGated ? '<span class="flag event">Granted, not researched</span>' : ""}
+        ${node.undrawable && !node.perkGated ? '<span class="flag event">Not researchable – granted by event</span>' : ""}
+        ${node.variant ? '<span class="flag">Variant for some empires</span>' : ""}
         ${node.spilled ? '<span class="flag">Placed past its tier band</span>' : ""}
       </p>
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
@@ -176,23 +190,30 @@ async function main(): Promise<void> {
   /** Short badge naming the perks, or counting them when there are too many. */
   function perkFlag(gates: PerkGate[] | undefined): string {
     if (!gates?.length) return "";
-    const required = gates.some((g) => g.k === "required");
-    const names = gates.map((g) => g.n.join(" or "));
+    const own = gates.filter((g) => !g.v);
+    const shown = own.length ? own : gates;
+    const names = shown.map((g) => g.n.join(" or "));
     const label = names.length <= 2 ? names.join(" + ") : `${names.length} ascension perks`;
-    const verb = required ? "Requires" : "Needs";
+    const verb = own.some((g) => g.k === "required" || g.k === "granted") ? "Requires" : "Needs";
     return `<span class="flag perk">${verb} ${escapeHtml(label)}</span>`;
   }
 
   /**
    * The gates, spelled out.
    *
-   * Two kinds, kept apart because they are not the same claim. A `required`
-   * gate means the technology does not exist for the empire at all; an
-   * `undrawable` one means it exists but is never offered, which still leaves
-   * an event free to grant it.
+   * Three kinds, kept apart because they are not the same claim. A `required`
+   * gate means the technology does not exist for the empire at all; a
+   * `granted` one that it is never drawn and the perk is what offers it; an
+   * `undrawable` one that it exists but is never offered, which still leaves
+   * an event free to grant it. An inherited gate says where it really sits.
    */
   function perkSection(gates: PerkGate[] | undefined): string {
     if (!gates?.length) return "";
+    const notes: Record<PerkGate["k"], string> = {
+      required: "does not exist without it",
+      granted: "only becomes researchable by taking it",
+      undrawable: "exists, but is never offered for research without it",
+    };
     const items = gates
       .map((gate) => {
         const names = gate.n
@@ -202,10 +223,9 @@ async function main(): Promise<void> {
             return `${art}${escapeHtml(name)}`;
           })
           .join(" <em>or</em> ");
-        const note =
-          gate.k === "required"
-            ? "does not exist without it"
-            : "exists, but is never offered for research without it";
+        const note = gate.v
+          ? `inherited through ${escapeHtml(gate.v)}, which ${notes[gate.k]}`
+          : notes[gate.k];
         return `<li>${names}<span class="note">${note}</span></li>`;
       })
       .join("");

@@ -99,10 +99,11 @@ def main() -> int:
 
     if extraction.triggers:
         print(f"triggers: {extraction.triggers.summary()}")
-    print(f"gates:   {gates_mod.summary(extraction.perk_gates)}")
 
     graph = graph_mod.build(extraction)
     print(f"graph:   {graph.summary()}")
+    effective = gates_mod.with_inherited(graph, extraction.perk_gates)
+    print(f"gates:   {gates_mod.summary(extraction.perk_gates, effective)}")
 
     assignment = rows_mod.assign(
         extraction,

@@ -28,6 +28,7 @@ from .clausewitz import Block, Scalar
 from .clausewitz.nodes import Node
 from .gates import PerkGate
 from .gates import build as build_perk_gates
+from .gates import build_grants as build_perk_grants
 from .icons import IconIndex, IconRef
 from .icons import build_index as build_icon_index
 from .inline_scripts import Expander, ExpansionStats
@@ -208,6 +209,30 @@ class TechnologyRecord:
         return self.weight == 0
 
     @property
+    def is_undrawable(self) -> bool:
+        """Never offered for research on its own merits, whatever the empire.
+
+        Wider than :attr:`is_weightless`. Vanilla writes the same intent a
+        second way, a declared weight with an unconditional ``factor = 0`` at
+        the top of ``weight_modifier``: ``tech_dyson_sphere``,
+        ``tech_ring_world`` and ``tech_matter_decompressor`` all do, and each
+        reaches an empire only because something -- here the Galactic Wonders
+        perk -- adds it as a research option.
+
+        A conditional zero inside a ``modifier`` block does not count; that
+        restricts the draw for some empires, which is what
+        :mod:`pipeline.gates` reads.
+        """
+        if self.weight == 0:
+            return True
+        for group in self.weight_modifiers:
+            for pair in group.pairs():
+                if pair.key == "factor" and isinstance(pair.value, Scalar):
+                    if _number(pair.value.value) == 0:
+                        return True
+        return False
+
+    @property
     def category(self) -> str | None:
         """The single category. Cardinality is 1 everywhere in the corpus."""
         return self.categories[0] if self.categories else None
@@ -247,18 +272,40 @@ class TechnologyRecord:
         )
 
     @property
+    def placement_variants(
+        self,
+    ) -> tuple[tuple[tuple[str, tuple[str, ...]], TechnologySwap | None], ...]:
+        """Every distinct row this technology can occupy, with the swap that puts it there.
+
+        The default placement comes first, paired with ``None``. A slot needs
+        to know its swap because the swap is what the empire in that row
+        actually sees: ``tech_ring_world`` relocated to society/biology is
+        "Artificial Deconstructor Ecologies" with art of its own, not "Ring
+        Segment". Where two swaps share a destination the first one wins.
+        """
+        seen: list[tuple[str, tuple[str, ...]]] = [self.placement]
+        variants: list[tuple[tuple[str, tuple[str, ...]], TechnologySwap | None]] = [
+            (self.placement, None)
+        ]
+        for swap in self.relocating_swaps:
+            destination = self.swap_placement(swap)
+            if destination not in seen:
+                seen.append(destination)
+                variants.append((destination, swap))
+        return tuple(variants)
+
+    @property
     def placements(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
         """Every distinct row this technology can occupy, default first.
 
         One layout slot is precomputed per entry, and exactly one is visible for
         any given empire.
         """
-        seen = [self.placement]
-        for swap in self.relocating_swaps:
-            destination = self.swap_placement(swap)
-            if destination not in seen:
-                seen.append(destination)
-        return tuple(seen)
+        return tuple(destination for destination, _ in self.placement_variants)
+
+    def swap_named(self, name: str) -> TechnologySwap | None:
+        """The relocating swap called ``name``, if there is one."""
+        return next((s for s in self.relocating_swaps if s.name == name), None)
 
     def icon(self, icons: IconIndex) -> IconRef:
         return icons.technology(self.key, self.declared_icon)
@@ -404,8 +451,13 @@ class Extraction:
     expansion: ExpansionStats | None = None
     load_order: LoadOrder | None = None
     triggers: TriggerIndex | None = None
-    #: Ascension perks gating a technology, for the technologies that have any.
-    #: Empty for most of the corpus, so stored aside rather than on the record.
+    #: Technology -> the ascension perks whose effects add it as a research
+    #: option. Includes perks that merely offer a drawable technology early;
+    #: :mod:`pipeline.gates` decides which grants are gates.
+    perk_grants: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Ascension perks gating a technology, for the technologies that declare
+    #: any. Inherited gates need the graph and are derived later, by
+    #: :func:`pipeline.gates.with_inherited`.
     perk_gates: dict[str, tuple[PerkGate, ...]] = field(default_factory=dict)
     #: Non-fatal problems worth surfacing in the build report.
     problems: list[str] = field(default_factory=list)
@@ -498,7 +550,10 @@ def extract(
 
     # After the loop: a gate is read off the expanded record, and inline script
     # expansion is what puts `potential` and `weight_modifier` there at all.
-    extraction.perk_gates = build_perk_gates(extraction.technologies, triggers)
+    extraction.perk_grants = build_perk_grants(load_order)
+    extraction.perk_gates = build_perk_gates(
+        extraction.technologies, triggers, extraction.perk_grants
+    )
 
     if expander.stats.missing_scripts:
         extraction.problems.append(
