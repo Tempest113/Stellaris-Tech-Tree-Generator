@@ -29,10 +29,11 @@ anything.
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .loadorder import LoadOrder
+from .loadorder import LoadOrder, resolve_files
 
 #: Vanilla's placeholder, by icon stem. Registered as GFX_technology_unknown.
 PLACEHOLDER_STEM = "unknown"
@@ -81,6 +82,10 @@ class IconIndex:
 
     technologies: dict[str, Path] = field(default_factory=dict)
     ascension_perks: dict[str, Path] = field(default_factory=dict)
+    #: Perk key -> icon, from the ``GFX_<perk>`` sprites in ``interface/*.gfx``.
+    #: The engine resolves perk art through these, and they are not always named
+    #: after the perk: ``GFX_ap_colossus`` is ``ap_colossus_project.dds``.
+    perk_sprites: dict[str, Path] = field(default_factory=dict)
     #: Distinct resolutions that needed a fallback, in first-seen order.
     #: Deduplicated because this is an actionable list of upstream data bugs,
     #: not a call log: a technology whose swap inherits its icon resolves the
@@ -180,10 +185,10 @@ class IconIndex:
         return self._placeholder_ref(swap_name)
 
     def ascension_perk(self, perk_key: str) -> IconRef:
-        """Resolve an ascension perk icon, for gate badges in the detail popup."""
-        path = self.ascension_perks.get(perk_key)
+        """Resolve an ascension perk icon: its sprite first, then the key convention."""
+        path = self.perk_sprites.get(perk_key) or self.ascension_perks.get(perk_key)
         if path is not None:
-            return IconRef(perk_key, perk_key, path)
+            return IconRef(perk_key, path.stem, path)
         return self._placeholder_ref(perk_key)
 
     def summary(self) -> str:
@@ -214,7 +219,36 @@ def build_index(load_order: LoadOrder) -> IconIndex:
                 continue
             for path in directory.glob("*.dds"):
                 target[path.stem] = path
+    _index_perk_sprites(load_order, index)
     return index
+
+
+_SPRITE = re.compile(rb"spriteType\s*=\s*\{([^{}]*)\}")
+_SPRITE_NAME = re.compile(rb'name\s*=\s*"?GFX_(ap_\w+)"?')
+_SPRITE_TEXTURE = re.compile(rb'texturefile\s*=\s*"([^"]+)"')
+
+
+def _index_perk_sprites(load_order: LoadOrder, index: IconIndex) -> None:
+    """Map each perk to the texture its ``GFX_<perk>`` sprite names.
+
+    Read with a pattern rather than the parser: sprite blocks are flat, and the
+    interface directory is large and full of GUI files that are no business of
+    this build. A texture is looked up by file name among indexed perk icons, so
+    a sprite pointing at art no source ships is ignored.
+    """
+    for resolved in resolve_files(load_order, "interface", pattern="*.gfx", recursive=True):
+        data = resolved.path.read_bytes()
+        if b"GFX_ap_" not in data:
+            continue
+        for block in _SPRITE.findall(data):
+            name = _SPRITE_NAME.search(block)
+            texture = _SPRITE_TEXTURE.search(block)
+            if not name or not texture:
+                continue
+            stem = Path(texture.group(1).decode("utf-8", "replace")).stem
+            path = index.ascension_perks.get(stem)
+            if path is not None:
+                index.perk_sprites[name.group(1).decode()] = path
 
 
 def load_image(path: Path):

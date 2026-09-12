@@ -1,71 +1,84 @@
-"""Which ascension perks gate a technology, and how strongly.
+"""What an empire has to have chosen before it can research a technology.
 
-An ascension perk is the strongest gate in the game: a perk is one of a handful
-of permanent choices an empire makes across a whole campaign, so a technology
-behind one is unreachable for most empires rather than merely unlikely. That
-makes it the single most useful thing to say about a technology the reader
-cannot otherwise explain the absence of.
+Ascension perks are the strongest such gate -- a perk is one of a handful of
+permanent choices across a campaign -- but they rarely stand alone.
+``giga_tech_the_vat`` needs Galactic Wonders *and* one of genetic ascension, the
+Genetics finisher, or Mechromancy. A reader that collects perks and ignores the
+rest reports "Galactic Wonders + Mechromancy", which is simply false: a
+biological empire never takes Mechromancy and still gets the Vat.
 
-The corpus expresses the same idea four ways, and only reading all four gives
-an honest answer:
+So a gate is read as a real boolean expression and reduced to what a player can
+act on.
 
+Conditions
+----------
+The conditions kept are the choices a player makes and can read about:
+ascension perks, traditions, origins, civics and crisis levels. A scripted
+trigger named in ``config/unlocks.toml`` -- ``has_genetically_ascended``, say --
+is kept whole under its configured name instead of being expanded into the four
+tradition finishers it stands for; any other scripted trigger is expanded.
+
+Everything else a trigger can test -- DLC, game rules, flags, council traits --
+is *unconstrained*: not a gate a card should name. The consequence that matters
+is in an ``OR``. One unconstrained alternative is a way round every other one,
+so the whole ``OR`` stops being a gate. ``OR = { has_country_flag = x
+has_ascension_perk = y }`` does not require the perk, and saying it did was the
+old bug.
+
+Two things are known to be *false* for a player. ``is_ai = yes`` is one, which
+is what lets ``has_gigastructural_constructs`` -- "an AI with an override flag,
+or the perk" -- still reduce to the perk. The other is a condition naming a perk,
+tradition, origin, civic or crisis level the load order never defines; see
+:data:`DEFINITION_DIRS`.
+
+A country flag is resolved through whatever sets it. The planet-killer
+technologies test ``has_country_flag = colossus_project``, and the only thing
+that sets that flag is the event at the end of the Colossus Project, so they are
+gated by the Colossus Project perk. A flag set anywhere a player can reach
+without a perk or tradition is unconstrained like any other test.
+
+Where gates are read
+--------------------
 ``potential``
-    ``potential = { has_ascension_perk = ap_cosmogenesis }``. A hard gate: the
-    technology does not exist for the empire at all.
+    The technology does not exist for the empire unless this holds.
 
 ``weight_modifier``
-    ``modifier = { factor = 0  NOT = { has_ascension_perk = ap_x } }``. The
-    technology exists but can never be drawn from the research pool without the
-    perk. Kept as its own kind because the distinction is real -- such a
-    technology can still be granted by an event -- and because a factor of 0 is
-    the only weight modifier that gates rather than merely nudges.
+    A ``modifier`` with ``factor = 0`` zeroes the draw when its conditions hold,
+    so the technology is drawable only when they do not. Reading that negation
+    through the same evaluator is what correctly ignores the sixteen
+    ``tech_fe_*_1`` modifiers: they zero the weight only once an empire already
+    holds four fallen-empire technologies, so the perk beside that condition
+    lifts a cap rather than gating anything.
 
-scripted triggers
-    ``potential = { has_gigastructural_constructs = yes }``, where that name is
-    defined in ``common/scripted_triggers`` as
-    ``or = { and = { is_ai = yes has_country_flag = ... } has_ascension_perk =
-    ap_gigastructural_constructs }``. Gigastructures gates most of its
-    headline megastructures this way, so a resolver that only reads
-    ``has_ascension_perk`` literally misses them entirely.
+unlock routes
+    A technology the research pool never offers, and that an ascension perk or
+    tradition hands out, is gated by that perk or tradition. See
+    :mod:`pipeline.unlocks`: Dyson Sphere comes from Galactic Wonders, Colossi
+    from the Colossus Project four hops away.
 
-perk grants
-    The gate lives on the perk, not the technology. ``tech_dyson_sphere``
-    declares nothing about Galactic Wonders; it is simply never drawable, and
-    the perk's ``on_enabled`` effect runs ``add_research_option =
-    tech_dyson_sphere``. A grant only gates a technology that is otherwise
-    undrawable: Galactic Wonders also offers ``tech_mega_engineering``, which
-    any empire can draw normally, so there the perk is a shortcut, not a gate.
-
-On top of a technology's own gates sit the ones it inherits. The Quasi-Stellar
-Obliterator chain names ``ap_qso`` once, on its first technology; the five after
-it are gated just as firmly, by needing the one before. See
-:func:`with_inherited`.
-
-Why this matters
-----------------
-Before this existed the renderer had one flag, ``weightless``, drawn from
-``weight == 0`` and labelled "granted by event". That label was wrong for every
-perk-gated technology that happened to set it, and every perk-gated technology
-that did not set it said nothing at all. The corpus tests pin the current split.
+On top of a technology's own gates sit those it inherits through what it
+cannot do without. See :func:`with_inherited`.
 
 Negation and scope
 ------------------
-Both are tracked, for the same reasons :func:`~pipeline.graph.find_technology_references`
-tracks them. ``NOT = { has_ascension_perk = x }`` inside ``potential`` excludes
-the perk rather than requiring it, and a reference under ``any_country`` asks
-what somebody else has taken. Neither is a gate on this technology.
+Tracked for the same reasons :func:`~pipeline.graph.find_technology_references`
+tracks them. ``NOT = { has_ascension_perk = x }`` excludes a perk rather than
+requiring it, and a condition under ``any_country`` asks about somebody else.
+Neither gates this technology. In Stellaris a multi-child ``NOT`` is a ``NOR``.
 """
 
 from __future__ import annotations
 
 import enum
+import itertools
+import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable, Iterator
+from typing import TYPE_CHECKING, Callable, Union
 
 from .clausewitz import Block, Scalar
-from .clausewitz.nodes import Node
 from .loadorder import LoadOrder, merge_keys, resolve_files
-from .triggers import NEGATING, TriggerIndex, changes_scope
+from .triggers import TriggerIndex, changes_scope
+from .unlocks import Route, RouteKind
 
 if TYPE_CHECKING:
     from .graph import TechGraph
@@ -75,48 +88,106 @@ if TYPE_CHECKING:
 #: itself cannot hang the build.
 MAX_TRIGGER_DEPTH = 8
 
+#: Cap on alternatives produced when an ``OR`` holds nested ``AND``s of ``OR``s.
+MAX_ALTERNATIVES = 16
+
+#: Trigger key -> condition kind, for the conditions a player chooses.
+CONDITION_KEYS = {
+    "has_ascension_perk": "perk",
+    "has_tradition": "tradition",
+    "has_active_tradition": "tradition",
+    "has_origin": "origin",
+    "has_valid_civic": "civic",
+    "has_civic": "civic",
+    "has_crisis_level": "crisis",
+}
+
+#: Where each condition kind is defined, so a condition naming nothing real can
+#: be recognised as impossible. Origins are civics with ``is_origin = yes``.
+#: A condition naming something the load order never defines is *false*:
+#: Gigastructures carries compatibility checks for other mods --
+#: ``has_active_tradition = frr_supremacy_deterrence_c`` -- that no player of this
+#: load order can ever meet, and offering one as a route in would be a lie.
+DEFINITION_DIRS = {
+    "perk": ("common/ascension_perks",),
+    "tradition": ("common/traditions",),
+    "origin": ("common/governments/civics",),
+    "civic": ("common/governments/civics",),
+    "crisis": ("common/crisis_levels",),
+}
+
+#: Blocks whose contents are evaluated as if written in place.
+_TRANSPARENT = {"custom_tooltip", "hidden_trigger"}
+
+#: Empire kinds an ascension perk's own ``potential`` can restrict it to, and
+#: how a reader names them.
+_EMPIRE_CONTEXTS = {
+    ("is_machine_empire", "yes"): "machine empires",
+    ("is_hive_empire", "yes"): "hive minds",
+    ("is_gestalt", "yes"): "gestalt empires",
+    ("country_uses_bio_ships", "yes"): "bio-ship empires",
+    ("is_lithoid_empire", "yes"): "lithoid empires",
+}
+
 
 class GateKind(enum.Enum):
-    """How firmly a perk gates a technology."""
+    """How firmly a gate holds a technology."""
 
-    #: ``potential`` -- the technology does not exist without the perk.
+    #: ``potential`` -- the technology does not exist without it.
     REQUIRED = "required"
-    #: Never drawable on its own, and the perk adds it as a research option.
+    #: Never drawable on its own, and this is what hands it out.
     GRANTED = "granted"
-    #: ``weight_modifier`` with ``factor = 0`` -- it exists but is never drawn.
+    #: A ``factor = 0`` weight modifier -- it exists but is never offered without it.
     UNDRAWABLE = "undrawable"
 
 
 #: Strongest first. Decides which gate a card has room to show.
 KIND_ORDER = (GateKind.REQUIRED, GateKind.GRANTED, GateKind.UNDRAWABLE)
 
-#: Effects that hand a technology to the empire running them.
-GRANT_EFFECTS = ("add_research_option", "research_technology")
+
+@dataclass(frozen=True, order=True)
+class Condition:
+    #: ``"perk"``, ``"tradition"``, ``"origin"``, ``"civic"``, ``"crisis"`` or ``"trigger"``.
+    kind: str
+    key: str
+
+
+#: Conditions that must all hold together.
+Alternative = tuple[Condition, ...]
 
 
 @dataclass(frozen=True)
-class PerkGate:
-    """One condition standing between an empire and a technology.
+class Gate:
+    """One requirement standing between an empire and a technology.
 
-    ``perks`` are alternatives: holding any single one satisfies the gate. A
-    technology's gates are a conjunction of these, mirroring the script, where
-    a ``potential`` block is an implicit AND of its top-level conditions and
-    each condition may be an OR inside.
+    ``alternatives`` are ways of meeting it: satisfy every condition in any one
+    of them. A technology's gates are a conjunction of these.
 
-    Galactic Wonders is why this cannot be a flat list of perks. It ships as
-    four keys -- base, Utopia, MegaCorp and both -- which are one perk wearing
-    different DLC hats, and ``has_galactic_wonders`` ORs all four. Flattening
-    them would claim a technology needs four perks at once.
+    Galactic Wonders is why a single perk can still be several alternatives. It
+    ships as four keys -- base, Utopia, MegaCorp and both -- that are one perk in
+    different DLC clothing, and ``has_galactic_wonders`` ORs all four.
     """
 
-    perks: tuple[str, ...]
+    alternatives: tuple[Alternative, ...]
     kind: GateKind
-    #: Set when the perks were reached through a scripted trigger rather than
-    #: named directly, so a build report can show the indirection.
+    #: Set when the gate was reached through a scripted trigger rather than
+    #: written out, so a build report can show the indirection.
     via_trigger: str | None = None
-    #: For a gate this technology inherits rather than declares: the technology
-    #: that declares it. ``None`` on a technology's own gates.
+    #: For an inherited gate: the technology that declares it.
     inherited_from: str | None = None
+
+    @property
+    def conditions(self) -> tuple[Condition, ...]:
+        seen: list[Condition] = []
+        for alternative in self.alternatives:
+            for condition in alternative:
+                if condition not in seen:
+                    seen.append(condition)
+        return tuple(seen)
+
+    @property
+    def perks(self) -> tuple[str, ...]:
+        return tuple(c.key for c in self.conditions if c.kind == "perk")
 
     @property
     def is_required(self) -> bool:
@@ -127,245 +198,265 @@ class PerkGate:
         return self.inherited_from is not None
 
 
-def find_ascension_perks(
-    node: Node | None,
-    triggers: TriggerIndex | None = None,
-    *,
-    negated: bool = False,
-    _depth: int = 0,
-    _seen: frozenset[str] = frozenset(),
-) -> list[tuple[str, str | None]]:
-    """Perks positively required somewhere under ``node``.
+# --------------------------------------------------------------------------
+# Evaluation
+# --------------------------------------------------------------------------
 
-    Returns ``(perk, via_trigger)`` pairs. Negated references and references
-    under a changed scope are skipped: neither is a requirement on the empire
-    researching this technology.
-    """
-    found: list[tuple[str, str | None]] = []
-    if node is None or isinstance(node, Scalar):
-        return found
 
-    for item in node.items:
-        if isinstance(item, Block):
-            found.extend(
-                find_ascension_perks(
-                    item, triggers, negated=negated, _depth=_depth, _seen=_seen
-                )
-            )
-            continue
-        key = getattr(item, "key", None)
-        if key is None:
-            continue
+class Truth(enum.Enum):
+    #: Unconstrained: nothing here a player has to choose.
+    TRUE = "true"
+    #: Impossible for a player, such as ``is_ai = yes``.
+    FALSE = "false"
 
-        if key == "has_ascension_perk" and isinstance(item.value, Scalar):
-            if not negated:
-                found.append((item.value.value, None))
-            continue
 
-        # `some_trigger = yes` pulls in that trigger's whole body.
-        if (
-            triggers is not None
-            and isinstance(item.value, Scalar)
-            and item.value.value.lower() == "yes"
-            and key in triggers
-            and key not in _seen
-            and _depth < MAX_TRIGGER_DEPTH
-        ):
-            body = triggers.get(key)
-            for perk, inner in find_ascension_perks(
-                body,
-                triggers,
-                negated=negated,
-                _depth=_depth + 1,
-                _seen=_seen | {key},
-            ):
-                found.append((perk, inner or key))
-            continue
+Expr = Union[Truth, Condition, tuple]  # tuple: ("and" | "or", (Expr, ...))
 
-        if isinstance(item.value, Block):
-            if changes_scope(key):
+
+@dataclass(frozen=True)
+class _Context:
+    triggers: TriggerIndex | None
+    named: frozenset[str]
+    #: Flag -> the conditions that set it, or ``None`` when a player can come
+    #: by it without any.
+    flags: Callable[[str], tuple[Condition, ...] | None] | None = None
+    #: Condition kind -> every key the load order defines for it.
+    defined: dict[str, frozenset[str]] | None = None
+
+
+def _combine(op: str, children: list) -> Expr:
+    flat: list = []
+    for child in children:
+        if op == "and":
+            if child is Truth.FALSE:
+                return Truth.FALSE
+            if child is Truth.TRUE:
                 continue
-            found.extend(
-                find_ascension_perks(
-                    item.value,
-                    triggers,
-                    negated=negated ^ (key.lower() in NEGATING),
-                    _depth=_depth,
-                    _seen=_seen,
-                )
+        else:
+            if child is Truth.TRUE:
+                return Truth.TRUE
+            if child is Truth.FALSE:
+                continue
+        if isinstance(child, tuple) and child[0] == op:
+            flat.extend(child[1])
+        elif child not in flat:
+            flat.append(child)
+    if not flat:
+        return Truth.TRUE if op == "and" else Truth.FALSE
+    if len(flat) == 1:
+        return flat[0]
+    return (op, tuple(flat))
+
+
+def _evaluate_block(
+    block: Block, ctx: _Context, *, negated: bool, op: str, depth: int, seen: frozenset[str]
+) -> Expr:
+    # De Morgan: under negation an AND of negated children is an OR, and back.
+    effective = op if not negated else ("or" if op == "and" else "and")
+    children = [
+        _evaluate_item(item, ctx, negated=negated, depth=depth, seen=seen) for item in block.items
+    ]
+    return _combine(effective, children)
+
+
+def _evaluate_item(item, ctx: _Context, *, negated: bool, depth: int, seen: frozenset[str]) -> Expr:
+    if isinstance(item, Block):
+        return _evaluate_block(item, ctx, negated=negated, op="and", depth=depth, seen=seen)
+    key = getattr(item, "key", None)
+    if key is None:
+        return Truth.TRUE
+    value = item.value
+    lowered = key.lower()
+
+    if isinstance(value, Block):
+        if lowered in ("not", "nor"):
+            return _evaluate_block(value, ctx, negated=not negated, op="or", depth=depth, seen=seen)
+        if lowered == "nand":
+            return _evaluate_block(value, ctx, negated=not negated, op="and", depth=depth, seen=seen)
+        if lowered in ("or", "and"):
+            return _evaluate_block(value, ctx, negated=negated, op=lowered, depth=depth, seen=seen)
+        if lowered in _TRANSPARENT and not changes_scope(key):
+            return _evaluate_block(value, ctx, negated=negated, op="and", depth=depth, seen=seen)
+        return Truth.TRUE
+
+    if not isinstance(value, Scalar):
+        return Truth.TRUE
+    text = value.value.lower()
+
+    if key in CONDITION_KEYS:
+        kind = CONDITION_KEYS[key]
+        if ctx.defined and kind in ctx.defined and value.value not in ctx.defined[kind]:
+            return Truth.TRUE if negated else Truth.FALSE
+        return Truth.TRUE if negated else Condition(kind, value.value)
+    if key == "has_country_flag" and not negated and ctx.flags is not None:
+        setters = ctx.flags(value.value)
+        return _combine("or", list(setters)) if setters else Truth.TRUE
+    if lowered == "is_ai" and text in ("yes", "no"):
+        holds_for_player = (text == "no") != negated
+        return Truth.TRUE if holds_for_player else Truth.FALSE
+
+    if text in ("yes", "no"):
+        asserted = (text == "yes") != negated
+        if key in ctx.named:
+            return Condition("trigger", key) if asserted else Truth.TRUE
+        triggers = ctx.triggers
+        if triggers is not None and key in triggers and key not in seen and depth < MAX_TRIGGER_DEPTH:
+            body = triggers.get(key)
+            return _evaluate_block(
+                body, ctx, negated=not asserted, op="and", depth=depth + 1, seen=seen | {key}
             )
-    return found
+    return Truth.TRUE
 
 
-def _gating_modifiers(weight_modifiers: Iterable[Block]) -> Iterator[Block]:
-    """``modifier`` blocks whose only effect is to zero the weight for lack of a perk.
+def _alternatives(expr: Expr) -> list[Alternative]:
+    if isinstance(expr, Condition):
+        return [(expr,)]
+    if isinstance(expr, tuple):
+        op, children = expr
+        if op == "or":
+            return [alt for child in children for alt in _alternatives(child)]
+        combos = itertools.islice(
+            itertools.product(*(_alternatives(child) for child in children)), MAX_ALTERNATIVES
+        )
+        return [tuple(dict.fromkeys(c for part in combo for c in part)) for combo in combos]
+    return []
 
-    Two conditions, both necessary.
 
-    *The factor must be exactly 0.* Anything else scales the draw weight, and a
-    technology merely made unlikely is not a technology made unavailable.
+def _groups(expr: Expr) -> list[tuple[Alternative, ...]]:
+    """Reduce an expression to a conjunction of alternative-groups."""
+    if isinstance(expr, Condition):
+        return [((expr,),)]
+    if isinstance(expr, tuple):
+        op, children = expr
+        if op == "and":
+            return [group for child in children for group in _groups(child)]
+        return [tuple(dict.fromkeys(_alternatives(expr)))]
+    return []
 
-    *The zero must be unconditional apart from the perk test.* A modifier body
-    is an implicit AND, so a sibling condition means the zero only bites in
-    narrower circumstances and the perk is not what gates the technology. The
-    sixteen ``tech_fe_*_1`` technologies are exactly this trap::
 
-        modifier = {
-            factor = 0
-            NOT = { has_ascension_perk = ap_cosmogenesis }
-            calc_true_if = { amount >= 4  has_technology = tech_fe_affluence_1 ... }
-        }
+def _trigger_name(item) -> str | None:
+    key = getattr(item, "key", None)
+    value = getattr(item, "value", None)
+    if key and isinstance(value, Scalar) and value.value.lower() in ("yes", "no"):
+        return key
+    return None
 
-    That zeroes the weight only once the empire already holds four fallen-empire
-    technologies: Cosmogenesis lifts a cap, it does not gate the technology, and
-    reporting it as a gate would be simply untrue. Sixteen modifiers in the
-    corpus are conditional like this and are skipped; forty are not.
 
-    Alternatives *inside* the single condition are fine and are kept, because
-    they widen rather than narrow the unlock. ``NOR = { has_crisis_level = x
-    has_ascension_perk = y }`` says the weight is zero unless the empire has one
-    or the other, so the perk is a genuine route in.
-    """
+def _zeroing_modifiers(weight_modifiers) -> list[Block]:
+    """``modifier`` blocks that set ``factor = 0``."""
+    found: list[Block] = []
     for group in weight_modifiers:
         for pair in group.pairs():
             if pair.key != "modifier" or not isinstance(pair.value, Block):
                 continue
-            factor: float | None = None
-            conditions = 0
-            for item in pair.value.items:
-                key = getattr(item, "key", None)
-                if key == "factor":
-                    if isinstance(item.value, Scalar):
-                        try:
-                            factor = float(item.value.value)
-                        except ValueError:
-                            factor = None
-                    continue
-                conditions += 1
-            if factor == 0 and conditions == 1:
-                yield pair.value
+            factor = pair.value.get_first("factor")
+            if isinstance(factor, Scalar):
+                try:
+                    if float(factor.value) == 0:
+                        found.append(pair.value)
+                except ValueError:
+                    pass
+    return found
 
 
-def _condition_groups(
-    block: Block | None, triggers: TriggerIndex | None, *, negated: bool
-) -> Iterator[tuple[tuple[str, ...], str | None]]:
-    """One ``(perks, via_trigger)`` group per top-level condition bearing perks.
-
-    The block is an implicit AND, so each of its top-level conditions is a
-    separate gate; the perks found beneath one condition are alternatives to
-    each other.
-    """
-    if block is None:
-        return
-    for item in block.items:
-        found = find_ascension_perks(Block(items=[item]), triggers, negated=negated)
-        if not found:
-            continue
-        perks: list[str] = []
-        for perk, _ in found:
-            if perk not in perks:
-                perks.append(perk)
-        via = next((v for _, v in found if v), None)
-        yield tuple(perks), via
-
-
-def perk_gates(
+def gates_for(
     record,
+    *,
     triggers: TriggerIndex | None = None,
-    grants: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[PerkGate, ...]:
-    """Every ascension-perk gate on ``record``, hard ones first.
+    named: frozenset[str] = frozenset(),
+    unlock_routes: tuple[Route, ...] = (),
+    flags: Callable[[str], tuple[Condition, ...] | None] | None = None,
+    defined: dict[str, frozenset[str]] | None = None,
+) -> tuple[Gate, ...]:
+    """Every gate ``record`` declares, strongest kind first."""
+    ctx = _Context(triggers=triggers, named=frozenset(named), flags=flags, defined=defined)
+    gates: list[Gate] = []
+    seen: set[tuple[Alternative, ...]] = set()
 
-    A perk group already required outright is not repeated as an undrawable
-    one. The six Cosmogenesis lathe technologies state it both ways; the weaker
-    statement adds nothing once the hard one holds.
-    """
-    gates: list[PerkGate] = []
-    seen: set[tuple[str, ...]] = set()
+    def add(alternatives: tuple[Alternative, ...], kind: GateKind, via: str | None) -> None:
+        if alternatives and alternatives not in seen:
+            seen.add(alternatives)
+            gates.append(Gate(alternatives=alternatives, kind=kind, via_trigger=via))
 
-    for perks, via in _condition_groups(record.potential, triggers, negated=False):
-        if perks in seen:
-            continue
-        seen.add(perks)
-        gates.append(PerkGate(perks=perks, kind=GateKind.REQUIRED, via_trigger=via))
+    if record.potential is not None:
+        for item in record.potential.items:
+            expr = _evaluate_item(item, ctx, negated=False, depth=0, seen=frozenset())
+            via = _trigger_name(item) if not isinstance(expr, Truth) else None
+            if via is not None and via not in (triggers or ()) and via not in named:
+                via = None
+            for group in _groups(expr):
+                add(group, GateKind.REQUIRED, via)
 
-    granted_by = (grants or {}).get(record.key, ())
-    if granted_by and record.is_undrawable and granted_by not in seen:
-        seen.add(granted_by)
-        gates.append(PerkGate(perks=granted_by, kind=GateKind.GRANTED))
+    if record.is_undrawable:
+        handed_out = tuple((c,) for c in route_conditions(unlock_routes) or ())
+        add(handed_out, GateKind.GRANTED, None)
 
-    for modifier in _gating_modifiers(record.weight_modifiers):
-        # `factor = 0` when the empire does NOT hold the perk is what makes the
-        # perk a gate, so here it is the negated reference that matters.
-        for perks, via in _condition_groups(modifier, triggers, negated=True):
-            if perks in seen:
-                continue
-            seen.add(perks)
-            gates.append(
-                PerkGate(perks=perks, kind=GateKind.UNDRAWABLE, via_trigger=via)
-            )
+    for modifier in _zeroing_modifiers(record.weight_modifiers):
+        # Drawable only when the modifier's conditions do NOT all hold.
+        conditions = [item for item in modifier.items if getattr(item, "key", None) != "factor"]
+        expr = _combine(
+            "or",
+            [_evaluate_item(i, ctx, negated=True, depth=0, seen=frozenset()) for i in conditions],
+        )
+        via = next((n for n in map(_trigger_name, conditions) if n in named), None)
+        for group in _groups(expr):
+            add(group, GateKind.UNDRAWABLE, via)
 
     return tuple(gates)
 
 
-def _collect_grants(node, found: list[str]) -> None:
-    """Technologies granted by effects under ``node``, skipping other scopes.
+def route_conditions(
+    routes: tuple[Route, ...], *, strict: bool = False
+) -> tuple[Condition, ...] | None:
+    """The perks and traditions behind a set of routes.
 
-    An effect under ``every_country`` hands the technology to somebody else,
-    exactly as a trigger under ``any_country`` asks about somebody else.
+    ``strict`` returns ``None`` when any route reaches a player some other way
+    -- an event, a research unlock -- because then no perk or tradition is
+    required. Flags are read strictly. A technology's own handed-out gate is
+    not: Colossi are also given to spawned fallen empires and the nanite
+    weapons to anyone who salvages nanite ships, but the perk or tradition is
+    still the route a player plans around.
     """
-    if not isinstance(node, Block):
-        return
-    for item in node.items:
-        if isinstance(item, Block):
-            _collect_grants(item, found)
-            continue
-        key = getattr(item, "key", None)
-        if key is None:
-            continue
-        if key in GRANT_EFFECTS and isinstance(item.value, Scalar):
-            if item.value.value not in found:
-                found.append(item.value.value)
-        elif isinstance(item.value, Block) and not changes_scope(key):
-            _collect_grants(item.value, found)
-
-
-def build_grants(load_order: LoadOrder) -> dict[str, tuple[str, ...]]:
-    """Which perks hand each technology to the empire that takes them.
-
-    Perk definitions merge by key like technologies, so a Gigastructures
-    override of ``ap_galactic_wonders`` replaces vanilla's wholesale. That
-    matters: the override is where the megastructure grants change.
-    """
-    merged = merge_keys(resolve_files(load_order, "common/ascension_perks"))
-    granted: dict[str, list[str]] = {}
-    for perk, block in merged.blocks.items():
-        techs: list[str] = []
-        _collect_grants(block, techs)
-        for tech in techs:
-            perks = granted.setdefault(tech, [])
-            if perk not in perks:
-                perks.append(perk)
-    return {tech: tuple(perks) for tech, perks in granted.items()}
+    if strict and any(r.kind not in (RouteKind.PERK, RouteKind.TRADITION) for r in routes):
+        return None
+    chosen = tuple(
+        dict.fromkeys(
+            Condition("perk" if r.kind is RouteKind.PERK else "tradition", r.key)
+            for r in routes
+            if r.kind in (RouteKind.PERK, RouteKind.TRADITION) and r.key
+        )
+    )
+    return chosen or None
 
 
 def build(
     records: dict,
-    triggers: TriggerIndex | None,
-    grants: dict[str, tuple[str, ...]] | None = None,
-) -> dict[str, tuple[PerkGate, ...]]:
-    """Perk gates for every technology that declares any."""
-    found: dict[str, tuple[PerkGate, ...]] = {}
+    *,
+    triggers: TriggerIndex | None = None,
+    named: frozenset[str] = frozenset(),
+    routes: dict[str, tuple[Route, ...]] | None = None,
+    flags: Callable[[str], tuple[Condition, ...] | None] | None = None,
+    defined: dict[str, frozenset[str]] | None = None,
+) -> dict[str, tuple[Gate, ...]]:
+    """Gates for every technology that declares any."""
+    found: dict[str, tuple[Gate, ...]] = {}
     for key, record in records.items():
-        gates = perk_gates(record, triggers, grants)
+        gates = gates_for(
+            record,
+            triggers=triggers,
+            named=named,
+            unlock_routes=(routes or {}).get(key, ()),
+            flags=flags,
+            defined=defined,
+        )
         if gates:
             found[key] = gates
     return found
 
 
 def with_inherited(
-    graph: TechGraph, own: dict[str, tuple[PerkGate, ...]]
-) -> dict[str, tuple[PerkGate, ...]]:
+    graph: TechGraph, own: dict[str, tuple[Gate, ...]]
+) -> dict[str, tuple[Gate, ...]]:
     """Every technology's own gates plus those it inherits through what it needs.
 
     A gate passes forward along anything a technology cannot do without: a hard
@@ -375,16 +466,16 @@ def with_inherited(
     with and name the technology that declares them, so the panel can say where
     the gate actually sits.
 
-    A technology's own gate on the same perks outranks an inherited one.
+    A technology's own gate with the same alternatives outranks an inherited one.
     """
     # Imported here, not at module level: graph imports records, which imports
     # this module to derive gates during extraction.
     from .graph import EdgeKind
 
-    effective: dict[str, tuple[PerkGate, ...]] = {}
+    effective: dict[str, tuple[Gate, ...]] = {}
     for key in graph.topological_order():
         gates = list(own.get(key, ()))
-        held = {g.perks for g in gates}
+        held = {g.alternatives for g in gates}
 
         groups: dict[tuple, list[str]] = {}
         for edge in graph.incoming(key):
@@ -394,17 +485,16 @@ def with_inherited(
                 groups[("one", edge.source)] = [edge.source]
 
         for options in groups.values():
-            common = {g.perks for g in effective.get(options[0], ())}
+            common = {g.alternatives for g in effective.get(options[0], ())}
             for other in options[1:]:
-                common &= {g.perks for g in effective.get(other, ())}
-            # The first option's gates, in order, for a deterministic result.
+                common &= {g.alternatives for g in effective.get(other, ())}
             for gate in effective.get(options[0], ()):
-                if gate.perks not in common or gate.perks in held:
+                if gate.alternatives not in common or gate.alternatives in held:
                     continue
-                held.add(gate.perks)
+                held.add(gate.alternatives)
                 gates.append(
-                    PerkGate(
-                        perks=gate.perks,
+                    Gate(
+                        alternatives=gate.alternatives,
                         kind=gate.kind,
                         via_trigger=gate.via_trigger,
                         inherited_from=gate.inherited_from or options[0],
@@ -416,24 +506,121 @@ def with_inherited(
     return effective
 
 
-def strongest(gates: tuple[PerkGate, ...]) -> PerkGate | None:
-    """The one gate a card has room to show: declared before inherited, then by kind."""
+def strongest(gates: tuple[Gate, ...]) -> Gate | None:
+    """The one gate a card has room to badge.
+
+    Declared before inherited, then one naming a perk -- the badge needs the
+    perk's art -- then by kind.
+    """
     if not gates:
         return None
-    return min(gates, key=lambda g: (g.is_inherited, KIND_ORDER.index(g.kind)))
+    return min(
+        gates, key=lambda g: (g.is_inherited, not g.perks, KIND_ORDER.index(g.kind))
+    )
+
+
+def defined_conditions(load_order: LoadOrder) -> dict[str, frozenset[str]]:
+    """Every key the load order defines, per condition kind."""
+    defined: dict[str, frozenset[str]] = {}
+    for kind, directories in DEFINITION_DIRS.items():
+        keys: set[str] = set()
+        for directory in directories:
+            blocks = merge_keys(resolve_files(load_order, directory)).blocks
+            keys.update(blocks)
+            # A tradition swap is a tradition in its own right as far as
+            # `has_active_tradition` is concerned: The Vat accepts
+            # `tr_genetics_finish_extra_traits`, which exists only as a swap of
+            # `tr_genetics_finish`. Vanilla has 194 such swaps.
+            for block in blocks.values():
+                if not isinstance(block, Block):
+                    continue
+                for swap in block.get_all("tradition_swap"):
+                    name = swap.get_first("name") if isinstance(swap, Block) else None
+                    if isinstance(name, Scalar):
+                        keys.add(name.value)
+        defined[kind] = frozenset(keys)
+    return defined
+
+
+def condition_name(condition: Condition, localisation, names: dict[str, str]) -> str:
+    """What a reader calls ``condition``.
+
+    A configured name wins. Crisis levels are localised as a bare stage name --
+    "Danger", "Calamity" -- that says nothing out of context, so they are named
+    after the ascension perk that starts their path instead.
+    """
+    if condition.key in names:
+        return names[condition.key]
+    if condition.kind == "crisis":
+        match = re.fullmatch(r"crisis_(?:(\w+)_)?level_(\d+)", condition.key)
+        if match:
+            path, level = match.groups()
+            perk = f"ap_{path}" if path else "ap_become_the_crisis"
+            label = localisation.get(perk) or (path or "crisis").replace("_", " ").title()
+            return f"{label} crisis level {level}"
+    return localisation.get(condition.key) or condition.key.replace("_", " ").title()
+
+
+def tradition_trees(load_order: LoadOrder) -> dict[str, str]:
+    """Tradition -> the tradition category it belongs to.
+
+    A tradition's own name rarely says which tree it is from -- the Nanotech
+    tradition that hands out the nanite weapons is called "Flood of
+    Supremacy" -- so the panel names the tree beside it.
+    """
+    merged = merge_keys(resolve_files(load_order, "common/tradition_categories"))
+    trees: dict[str, str] = {}
+    for category, block in merged.blocks.items():
+        if not isinstance(block, Block):
+            continue
+        listed = block.get_first("traditions")
+        members = [s.value for s in listed.scalars()] if isinstance(listed, Block) else []
+        for key in ("adoption_bonus", "finish_bonus"):
+            bonus = block.get_first(key)
+            if isinstance(bonus, Scalar):
+                members.append(bonus.value)
+        for tradition in members:
+            trees.setdefault(tradition, category)
+    return trees
+
+
+def perk_contexts(load_order: LoadOrder) -> dict[str, str]:
+    """The empires each ascension perk is restricted to, where its ``potential`` says.
+
+    Mechromancy's potential requires ``is_machine_empire = yes``, which is how a
+    gate reading "Genetic Ascension or Mechromancy" can say which empires take
+    which route without anyone writing it down.
+    """
+    merged = merge_keys(resolve_files(load_order, "common/ascension_perks"))
+    contexts: dict[str, str] = {}
+    for perk, block in merged.blocks.items():
+        if not isinstance(block, Block):
+            continue
+        potential = block.get_first("potential")
+        if not isinstance(potential, Block):
+            continue
+        for pair in potential.pairs():
+            if isinstance(pair.value, Scalar):
+                label = _EMPIRE_CONTEXTS.get((pair.key, pair.value.value.lower()))
+                if label:
+                    contexts[perk] = label
+                    break
+    return contexts
 
 
 def summary(
-    gates: dict[str, tuple[PerkGate, ...]],
-    effective: dict[str, tuple[PerkGate, ...]] | None = None,
+    gates: dict[str, tuple[Gate, ...]],
+    effective: dict[str, tuple[Gate, ...]] | None = None,
 ) -> str:
-    required = sum(1 for g in gates.values() if any(x.is_required for x in g))
-    granted = sum(1 for g in gates.values() if any(x.kind is GateKind.GRANTED for x in g))
-    indirect = sum(1 for g in gates.values() if any(x.via_trigger for x in g))
+    def count(test) -> int:
+        return sum(1 for g in gates.values() if any(test(x) for x in g))
+
     perks = {p for g in gates.values() for x in g for p in x.perks}
     text = (
-        f"{len(gates)} technologies behind {len(perks)} ascension perks "
-        f"({required} hard-gated, {granted} perk-granted, {indirect} via scripted triggers)"
+        f"{len(gates)} technologies gated, {count(lambda x: x.perks)} by ascension perks "
+        f"across {len(perks)} perk keys ({count(lambda x: x.is_required)} hard, "
+        f"{count(lambda x: x.kind is GateKind.GRANTED)} handed out, "
+        f"{count(lambda x: x.via_trigger)} via scripted triggers)"
     )
     if effective is not None:
         text += f"; {len(effective) - len(gates)} more inherit a gate"

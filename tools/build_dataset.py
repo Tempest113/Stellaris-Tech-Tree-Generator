@@ -10,6 +10,7 @@ dataset is built here and published as a release artifact.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline import config as build_config
 from pipeline import emit as emit_mod
 from pipeline import gates as gates_mod
+from pipeline import unlocks as unlocks_mod
 from pipeline import graph as graph_mod
 from pipeline import layout as layout_mod
 from pipeline import localisation as loc_mod
@@ -99,11 +101,25 @@ def main() -> int:
 
     if extraction.triggers:
         print(f"triggers: {extraction.triggers.summary()}")
+    if extraction.unlocks:
+        print(f"unlocks: {extraction.unlocks.summary()}")
+        for source in load_order:
+            if not (source.root / "events").is_dir():
+                print(
+                    f"  note: {source.name} has no events/ -- grants in its events are "
+                    "not traced, and its event-granted technologies fall back to 'Event'"
+                )
+        tags = Counter(
+            unlocks_mod.tag_for(record, extraction.unlock_routes.get(key, ()), extraction.unlock_config)
+            for key, record in extraction.technologies.items()
+        )
+        del tags[None]
+        print("  tags: " + ", ".join(f"{tag} {count}" for tag, count in tags.most_common()))
 
     graph = graph_mod.build(extraction)
     print(f"graph:   {graph.summary()}")
-    effective = gates_mod.with_inherited(graph, extraction.perk_gates)
-    print(f"gates:   {gates_mod.summary(extraction.perk_gates, effective)}")
+    effective = gates_mod.with_inherited(graph, extraction.gates)
+    print(f"gates:   {gates_mod.summary(extraction.gates, effective)}")
 
     assignment = rows_mod.assign(
         extraction,

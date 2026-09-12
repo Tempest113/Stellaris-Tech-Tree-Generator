@@ -494,10 +494,12 @@ export class Renderer {
     context.fillText(tier, textX, baseline);
     let cursor = textX + context.measureText(tier).width + 8;
 
-    const flag = node.undrawable && !node.perkGated ? "event" : node.variant ? "variant" : "";
+    // The tag says how an undrawable technology arrives; failing that, a
+    // variant says it is one presentation of a technology among several.
+    const flag = node.tag ?? (node.variant ? "Variant" : "");
     let flagX = right;
     if (flag) {
-      context.fillStyle = flag === "event" ? FLAG.rare : INK.muted;
+      context.fillStyle = node.tag ? FLAG.rare : INK.muted;
       flagX = right - context.measureText(flag).width;
       context.fillText(flag, flagX, baseline);
     }

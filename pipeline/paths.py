@@ -34,8 +34,10 @@ ICON_SUBDIRS = (
 
 #: Everything a build needs from a source. Used as the sparse-checkout set for
 #: vendored mods; ``localisation`` is whole-tree because language files sit
-#: directly under it alongside a ``replace/`` override directory.
-SOURCE_SUBDIRS = ("common", "localisation", *ICON_SUBDIRS)
+#: directly under it alongside a ``replace/`` override directory. ``events`` is
+#: read to trace how undrawable technologies are handed out; without it a mod's
+#: event-granted technologies can only be tagged as plain events.
+SOURCE_SUBDIRS = ("common", "events", "localisation", *ICON_SUBDIRS)
 
 
 def icon_directories(root) -> list:

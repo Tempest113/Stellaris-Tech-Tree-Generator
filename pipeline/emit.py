@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import gates as gates_mod
+from . import unlocks as unlocks_mod
 from . import geometry as geom
 from .clausewitz import Block, serialize
 from .graph import EdgeKind, TechGraph
@@ -168,7 +169,8 @@ def emit(
 
     crisis_names = {c.key: c.name for c in (assignment.crises if assignment else ())}
     icons = extraction.icons
-    perk_gates = gates_mod.with_inherited(graph, extraction.perk_gates)
+    config = extraction.unlock_config
+    all_gates = gates_mod.with_inherited(graph, extraction.gates)
 
     # Stable node order so diffs between builds are readable. Node index is
     # position in this list, and nothing else may be used to address a node:
@@ -208,7 +210,8 @@ def emit(
         if stem:
             used_icon_stems.append(stem)
 
-        gates = perk_gates.get(slot.technology, ())
+        gates = all_gates.get(slot.technology, ())
+        badge = gates_mod.strongest(gates)
         flags = []
         if record.is_dangerous:
             flags.append("dangerous")
@@ -217,11 +220,9 @@ def emit(
         if record.is_undrawable:
             flags.append("undrawable")
         if gates:
-            # Separate from undrawable: a technology can be perk-gated and still
-            # event-granted, and the panel says which applies.
-            flags.append("perk-gated")
-            if all(g.is_inherited for g in gates):
-                flags.append("perk-inherited")
+            flags.append("gated")
+        if badge is not None and badge.perks and badge.is_inherited:
+            flags.append("perk-inherited")
         if record.start_tech:
             flags.append("start")
         if slot.spilled:
@@ -247,6 +248,11 @@ def emit(
             node["sw"] = swap.name
         if flags:
             node["f"] = flags
+        tag = unlocks_mod.tag_for(
+            record, extraction.unlock_routes.get(slot.technology, ()), config
+        )
+        if tag:
+            node["tg"] = tag
         if record.cost is not None:
             node["$"] = int(record.cost)
         if record.is_repeatable:
@@ -255,7 +261,7 @@ def emit(
 
     perk_icons: dict[str, str] = {}
     if icons:
-        for gates in perk_gates.values():
+        for gates in all_gates.values():
             for gate in gates:
                 for perk in gate.perks:
                     if perk in perk_icons:
@@ -269,21 +275,18 @@ def emit(
     for node in nodes:
         node["ic"] = slot_stems.get(node["ic"], -1)
 
-    def perk_icon(gate: gates_mod.PerkGate) -> int:
-        """Atlas slot for the first perk in ``gate`` that ships art, or -1."""
-        for perk in gate.perks:
-            slot = slot_stems.get(perk_icons.get(perk, ""), -1)
-            if slot >= 0:
-                return slot
-        return -1
+    def perk_icon(perk: str) -> int:
+        return slot_stems.get(perk_icons.get(perk, ""), -1)
 
-    # The card badge: one perk, from the strongest gate. Declared before
-    # inherited, so a card never names a gate it merely passes along when it
-    # has one of its own.
+    # The card badge: one perk, from the strongest gate that names one.
+    # Declared before inherited, so a card never names a gate it merely passes
+    # along when it has one of its own.
     for node in nodes:
-        badge = gates_mod.strongest(perk_gates.get(node["k"], ()))
-        if badge is not None:
-            node["pb"] = perk_icon(badge)
+        badge = gates_mod.strongest(all_gates.get(node["k"], ()))
+        if badge is not None and badge.perks:
+            node["pb"] = next(
+                (s for s in map(perk_icon, badge.perks) if s >= 0), -1
+            )
 
     edges = wire_edges(graph, slots, profiles)
 
@@ -359,35 +362,83 @@ def emit(
         "edges": edges,
     }
 
-    def gate_payload(key: str) -> list[dict]:
-        """Perk gates for the detail panel.
+    def condition_payload(condition: gates_mod.Condition) -> dict:
+        entry: dict = {
+            "n": gates_mod.condition_name(condition, localisation, config.names),
+            "t": condition.kind,
+        }
+        icon_slot = perk_icon(condition.key) if condition.kind == "perk" else -1
+        if icon_slot >= 0:
+            entry["i"] = icon_slot
+        context = config.contexts.get(condition.key) or extraction.perk_contexts.get(condition.key)
+        if not context and condition.kind == "tradition":
+            tree = extraction.tradition_trees.get(condition.key)
+            tree_name = localisation.get(tree) if tree else None
+            # "Psionic Traditions Finished" already says its tree; "Flood of
+            # Supremacy" does not.
+            if tree_name and tree_name.lower() not in entry["n"].lower():
+                context = f"{tree_name} traditions"
+        if context:
+            entry["c"] = context
+        return entry
 
-        Perk *names* are deduplicated, not perk keys: Galactic Wonders ships as
-        four DLC-conditional keys that all localise to the same words, and
-        listing it four times would read as four requirements.
+    def gate_payload(key: str) -> list[dict]:
+        """Gates for the detail panel, as groups of alternatives.
+
+        ``a`` lists the alternatives; each is a list of conditions that must
+        hold together. Alternatives are deduplicated by what they *read* as,
+        not by key: Galactic Wonders ships as four DLC-conditional keys that
+        all localise to the same words, and listing it four times would read
+        as four different ways in.
         """
         payload = []
-        for gate in perk_gates.get(key, ()):
-            names: list[str] = []
-            icon_slots: list[int] = []
-            for perk in gate.perks:
-                name = localisation.name(perk)
-                icon_slot = slot_stems.get(perk_icons.get(perk, ""), -1)
-                if name in names:
-                    # Same perk under another name-sharing key. Keep whichever
-                    # one ships art: the three DLC-conditional Galactic Wonders
-                    # keys have none of their own and reuse the base perk's.
-                    at = names.index(name)
-                    if icon_slots[at] < 0:
-                        icon_slots[at] = icon_slot
+        for gate in all_gates.get(key, ()):
+            alternatives: dict[tuple[str, ...], list[dict]] = {}
+            for alternative in gate.alternatives:
+                conditions = [condition_payload(c) for c in alternative]
+                names = tuple(dict.fromkeys(c["n"] for c in conditions))
+                if names in alternatives:
+                    # Same words under another key. Keep whichever ships art:
+                    # the DLC-conditional Galactic Wonders keys reuse the base
+                    # perk's.
+                    for kept, fresh in zip(alternatives[names], conditions):
+                        if "i" not in kept and "i" in fresh:
+                            kept["i"] = fresh["i"]
                     continue
-                names.append(name)
-                icon_slots.append(icon_slot)
-            entry = {"k": gate.kind.value, "n": names, "i": icon_slots}
+                alternatives[names] = list({c["n"]: c for c in conditions}.values())
+            entry = {"k": gate.kind.value, "a": list(alternatives.values())}
             if gate.inherited_from:
                 entry["v"] = localisation.name(gate.inherited_from)
             payload.append(entry)
         return payload
+
+    def route_payload(key: str) -> list[dict]:
+        """How an undrawable technology reaches a player, one entry per way."""
+        payload: list[dict] = []
+        for route in extraction.unlock_routes.get(key, ()):
+            kind = route.kind
+            if kind is unlocks_mod.RouteKind.PERK or kind is unlocks_mod.RouteKind.TRADITION:
+                name = localisation.get(route.key) or route.key
+            elif kind is unlocks_mod.RouteKind.RESEARCH:
+                name = localisation.name(route.key)
+            elif kind is unlocks_mod.RouteKind.TAGGED:
+                name = route.key
+            else:
+                name = ""
+            entry = {"k": kind.value, "n": name}
+            if entry not in payload:
+                payload.append(entry)
+        return payload
+
+    def starting_conditions(record) -> list[str]:
+        """Named conditions in ``starting_potential``, for "Starting technology for ..."."""
+        if record.starting_potential is None:
+            return []
+        return [
+            config.names[pair.key]
+            for pair in record.starting_potential.pairs()
+            if pair.key in config.names
+        ]
 
     details = {}
     for node in nodes:
@@ -397,9 +448,16 @@ def emit(
             "d": localisation.description(key),
             "p": [list(group.options) for group in record.prerequisites],
         }
+        # Each of these is empty for most technologies; omitted to keep the file small.
         gates = gate_payload(key)
-        if gates:  # most technologies have none; omitted to keep this small
+        if gates:
             entry["ap"] = gates
+        technology_routes = route_payload(key)
+        if technology_routes:
+            entry["u"] = technology_routes
+        starting = starting_conditions(record) if record.start_tech else []
+        if starting:
+            entry["st"] = starting
         details[key] = entry
         # A variant slot opens under its swap's name, and its description is
         # the one its empires read.

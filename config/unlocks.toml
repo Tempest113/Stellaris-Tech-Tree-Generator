@@ -1,0 +1,42 @@
+# How technologies reach a player, where the game data needs a human to say so.
+#
+# The build works most of this out itself: see pipeline/unlocks.py for how grant
+# routes are traced and pipeline/gates.py for how gates are read. This file
+# holds the parts it cannot know -- what a player calls a condition, and which
+# routes deserve a name of their own -- plus manual overrides.
+
+# --- Conditions ---------------------------------------------------------------
+#
+# Display names for gate conditions the game names badly or not at all. A
+# scripted trigger listed here is kept whole under this name instead of being
+# expanded into whatever it checks. `context` says which empires the condition
+# applies to; ascension perks get theirs automatically from their own potential.
+
+[conditions]
+# Ascension paths. Each scripted trigger ORs perks, tradition finishers and
+# origins that a player thinks of as one choice.
+has_genetically_ascended = { name = "Genetic Ascension", context = "biological empires" }
+has_genetic_ascension = { name = "Genetic Ascension", context = "biological empires" }
+# The Genetics finisher with extra trait picks; a player reads it as the same path.
+tr_genetics_finish_extra_traits = { name = "Genetic Ascension", context = "biological empires" }
+has_psionic_ascension = "Psionic Ascension"
+has_cybernetic_ascension = "Cybernetic Ascension"
+has_synthetic_ascension = "Synthetic Ascension"
+is_eager_explorer_empire = "Eager Explorers"
+
+# --- Routes -------------------------------------------------------------------
+#
+# A route passing through `via` -- written "kind:key", as in the build report --
+# gets `tag` on its card instead of the generic "Event".
+
+[[route]]
+via = "scripted_effects:add_observation_insight_effect"
+tag = "Observation Insight"
+
+# --- Per-technology tags ------------------------------------------------------
+#
+# Applied over whatever the build derived. An empty string removes the tag.
+#
+#   tech_example = "Observation Insight"
+
+[technology]

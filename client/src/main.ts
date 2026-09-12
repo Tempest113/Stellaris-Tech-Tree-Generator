@@ -122,17 +122,22 @@ async function main(): Promise<void> {
 
   // -- detail panel ------------------------------------------------------
 
+  /** One condition in a gate: a perk, tradition, origin, civic or named trigger. */
+  type Condition = { n: string; t: string; i?: number; c?: string };
   /**
-   * `ap` is a conjunction of gates; the names within one gate are alternatives.
-   * `v` names the technology a gate is inherited from, when it is inherited.
+   * `ap` is a conjunction of gates. Within a gate, `a` lists alternatives; each
+   * alternative is conditions that must hold together. `v` names the
+   * technology a gate is inherited from, when it is inherited.
    */
-  type PerkGate = {
+  type Gate = {
     k: "required" | "granted" | "undrawable";
-    n: string[];
-    i: number[];
+    a: Condition[][];
     v?: string;
   };
-  let details: Record<string, { d: string; p: string[][]; ap?: PerkGate[] }> | null = null;
+  /** A way an undrawable technology reaches a player. */
+  type Route = { k: "perk" | "tradition" | "tagged" | "research" | "start" | "event"; n: string };
+  type Detail = { d: string; p: string[][]; ap?: Gate[]; u?: Route[]; st?: string[] };
+  let details: Record<string, Detail> | null = null;
   async function showPanel(index: number): Promise<void> {
     const node = data.nodes[index]!;
     if (!details) {
@@ -166,13 +171,14 @@ async function main(): Promise<void> {
       <p class="flags">
         ${node.dangerous ? '<span class="flag danger">Dangerous</span>' : ""}
         ${node.rare ? '<span class="flag rare">Rare</span>' : ""}
-        ${perkFlag(detail?.ap)}
-        ${node.undrawable && !node.perkGated ? '<span class="flag event">Not researchable – granted by event</span>' : ""}
-        ${node.variant ? '<span class="flag">Variant for some empires</span>' : ""}
-        ${node.spilled ? '<span class="flag">Placed past its tier band</span>' : ""}
+        ${gateFlag(detail?.ap)}
+        ${tagFlag(node.tag, detail?.st)}
+        ${node.variant ? '<span class="flag">Variant for Some Empires</span>' : ""}
+        ${node.spilled ? '<span class="flag">Placed Past Its Tier Band</span>' : ""}
       </p>
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
-      ${perkSection(detail?.ap)}
+      ${gateSection(detail?.ap)}
+      ${routeSection(detail?.u, node.tag)}
       <h3>Prerequisites ${prereqs ? "" : "<span class='none'>none</span>"}</h3>
       <ul>${prereqs}</ul>
       <h3>Unlocks ${dependents ? "" : "<span class='none'>nothing</span>"}</h3>
@@ -192,50 +198,89 @@ async function main(): Promise<void> {
     panel.hidden = true;
   }
 
-  /** Short badge naming the perks, or counting them when there are too many. */
-  function perkFlag(gates: PerkGate[] | undefined): string {
+  /** A gate as plain text: alternatives joined by "or", conditions by "+". */
+  function gateText(gate: Gate): string {
+    return gate.a.map((alternative) => alternative.map((c) => c.n).join(" + ")).join(" or ");
+  }
+
+  /** Short flag for the declared gates, with alternatives in brackets. */
+  function gateFlag(gates: Gate[] | undefined): string {
     if (!gates?.length) return "";
     const own = gates.filter((g) => !g.v);
     const shown = own.length ? own : gates;
-    const names = shown.map((g) => g.n.join(" or "));
-    const label = names.length <= 2 ? names.join(" + ") : `${names.length} ascension perks`;
-    const verb = own.some((g) => g.k === "required" || g.k === "granted") ? "Requires" : "Needs";
+    const parts = shown.map((g) => (g.a.length > 1 && shown.length > 1 ? `(${gateText(g)})` : gateText(g)));
+    const label = parts.length <= 2 ? parts.join(" and ") : `${parts.length} Requirements`;
+    const verb = own.some((g) => g.k !== "undrawable") ? "Requires" : "Needs";
     return `<span class="flag perk">${verb} ${escapeHtml(label)}</span>`;
+  }
+
+  /** The card tag again, spelled out for the panel. */
+  function tagFlag(tag: string | undefined, starting: string[] | undefined): string {
+    if (!tag) return "";
+    const text =
+      tag === "Event"
+        ? "Granted by an Event"
+        : tag === "Starting"
+          ? `Starting Technology${starting?.length ? ` for ${starting.join(", ")}` : ""}`
+          : tag;
+    return `<span class="flag event">${escapeHtml(text)}</span>`;
   }
 
   /**
    * The gates, spelled out.
    *
    * Three kinds, kept apart because they are not the same claim. A `required`
-   * gate means the technology does not exist for the empire at all; a
-   * `granted` one that it is never drawn and the perk is what offers it; an
-   * `undrawable` one that it exists but is never offered, which still leaves
-   * an event free to grant it. An inherited gate says where it really sits.
+   * gate means the technology does not exist for the empire without it; a
+   * `granted` one that it is never drawn and this is what hands it out; an
+   * `undrawable` one that it exists but is never offered without it, which
+   * still leaves an event free to grant it. Each gate lists its alternatives,
+   * so "Galactic Wonders" and "Genetic Ascension or Mechromancy" read as the
+   * two separate requirements they are. An inherited gate says where it sits.
    */
-  function perkSection(gates: PerkGate[] | undefined): string {
+  function gateSection(gates: Gate[] | undefined): string {
     if (!gates?.length) return "";
-    const notes: Record<PerkGate["k"], string> = {
+    const notes: Record<Gate["k"], string> = {
       required: "does not exist without it",
-      granted: "only becomes researchable by taking it",
+      granted: "only becomes researchable through it",
       undrawable: "exists, but is never offered for research without it",
     };
     const items = gates
       .map((gate) => {
-        const names = gate.n
-          .map((name, i) => {
-            const icon = gate.i[i] ?? -1;
-            const art = icon >= 0 ? `<i class="perk-icon" style="${atlasStyle(icon)}"></i>` : "";
-            return `${art}${escapeHtml(name)}`;
-          })
-          .join(" <em>or</em> ");
+        const alternatives = gate.a
+          .map((alternative) =>
+            alternative
+              .map((c) => {
+                const art = c.i !== undefined ? `<i class="perk-icon" style="${atlasStyle(c.i)}"></i>` : "";
+                const context = c.c ? ` <span class="context">(${escapeHtml(c.c)})</span>` : "";
+                return `<span class="condition">${art}${escapeHtml(c.n)}${context}</span>`;
+              })
+              .join(' <em class="join">+</em> '),
+          )
+          .join(' <em class="join">or</em> ');
         const note = gate.v
           ? `inherited through ${escapeHtml(gate.v)}, which ${notes[gate.k]}`
           : notes[gate.k];
-        return `<li>${names}<span class="note">${note}</span></li>`;
+        return `<li>${alternatives}<span class="note">${note}</span></li>`;
       })
-      .join("");
-    const heading = gates.length > 1 ? "Ascension perks" : "Ascension perk";
-    return `<h3>${heading}</h3><ul class="perks">${items}</ul>`;
+      .join('<li class="and">and</li>');
+    return `<h3>Requirements</h3><ul class="perks">${items}</ul>`;
+  }
+
+  /** How an undrawable technology reaches a player, when there is more to say than its tag. */
+  function routeSection(routes: Route[] | undefined, tag: string | undefined): string {
+    if (!routes?.length) return "";
+    // A lone route the tag already names adds nothing.
+    if (routes.length === 1 && routes[0]!.k === "tagged" && routes[0]!.n === tag) return "";
+    const phrase: Record<Route["k"], (name: string) => string> = {
+      perk: (n) => `Taking the ${n} ascension perk`,
+      tradition: (n) => `Adopting ${n}`,
+      tagged: (n) => n,
+      research: (n) => `Researching ${n}`,
+      start: () => "Game start, for some origins or empires",
+      event: () => "An event, special project or situation",
+    };
+    const items = routes.map((r) => `<li>${escapeHtml(phrase[r.k](r.n))}</li>`).join("");
+    return `<h3>Unlocked By</h3><ul>${items}</ul>`;
   }
 
   /** Background shorthand for one atlas cell, so a perk icon needs no <img>. */

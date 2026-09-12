@@ -72,6 +72,8 @@ checkout: Gigastructures is 1.9 GB, of which ~49 MB is relevant.
 
 - `docs/KNOWN-CORPUS-DEFECTS.md` — third-party data problems the pipeline copes with
 - `docs/crisis-rows.md` — why the Gigastructures crises get rows of their own
+- `config/unlocks.toml` — names for gate conditions, tags for unlock routes such as
+  Observation Insights, and manual per-technology tag overrides
 
 ## Licence and attribution
 

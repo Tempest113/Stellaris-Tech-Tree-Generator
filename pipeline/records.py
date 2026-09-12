@@ -26,9 +26,9 @@ from typing import Iterable, Iterator
 
 from .clausewitz import Block, Scalar
 from .clausewitz.nodes import Node
-from .gates import PerkGate
-from .gates import build as build_perk_gates
-from .gates import build_grants as build_perk_grants
+from . import unlocks as unlocks_mod
+from .gates import Gate, defined_conditions, perk_contexts, route_conditions, tradition_trees
+from .gates import build as build_gates
 from .icons import IconIndex, IconRef
 from .icons import build_index as build_icon_index
 from .inline_scripts import Expander, ExpansionStats
@@ -451,14 +451,18 @@ class Extraction:
     expansion: ExpansionStats | None = None
     load_order: LoadOrder | None = None
     triggers: TriggerIndex | None = None
-    #: Technology -> the ascension perks whose effects add it as a research
-    #: option. Includes perks that merely offer a drawable technology early;
-    #: :mod:`pipeline.gates` decides which grants are gates.
-    perk_grants: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    #: Ascension perks gating a technology, for the technologies that declare
-    #: any. Inherited gates need the graph and are derived later, by
-    #: :func:`pipeline.gates.with_inherited`.
-    perk_gates: dict[str, tuple[PerkGate, ...]] = field(default_factory=dict)
+    #: Every technology grant in the load order, and what fires it.
+    unlocks: unlocks_mod.UnlockIndex | None = None
+    unlock_config: unlocks_mod.UnlockConfig = field(default_factory=unlocks_mod.UnlockConfig)
+    #: How each undrawable technology reaches a player, for those with a route.
+    unlock_routes: dict[str, tuple[unlocks_mod.Route, ...]] = field(default_factory=dict)
+    #: Gates each technology declares. Inherited gates need the graph and are
+    #: derived later, by :func:`pipeline.gates.with_inherited`.
+    gates: dict[str, tuple[Gate, ...]] = field(default_factory=dict)
+    #: Ascension perk -> the empires its own potential restricts it to.
+    perk_contexts: dict[str, str] = field(default_factory=dict)
+    #: Tradition -> its tradition category.
+    tradition_trees: dict[str, str] = field(default_factory=dict)
     #: Non-fatal problems worth surfacing in the build report.
     problems: list[str] = field(default_factory=list)
 
@@ -511,6 +515,7 @@ def extract(
     load_order: LoadOrder,
     *,
     reference_load_order: LoadOrder | None = None,
+    unlock_config: unlocks_mod.UnlockConfig | None = None,
 ) -> Extraction:
     """Run the whole extraction and return canonical records.
 
@@ -550,10 +555,31 @@ def extract(
 
     # After the loop: a gate is read off the expanded record, and inline script
     # expansion is what puts `potential` and `weight_modifier` there at all.
-    extraction.perk_grants = build_perk_grants(load_order)
-    extraction.perk_gates = build_perk_gates(
-        extraction.technologies, triggers, extraction.perk_grants
+    config = unlock_config if unlock_config is not None else unlocks_mod.load_config()
+    extraction.unlock_config = config
+    extraction.unlocks = unlocks_mod.build_index(load_order)
+    extraction.unlock_routes = unlocks_mod.build(
+        extraction.technologies, extraction.unlocks, config
     )
+    flag_cache: dict[str, tuple | None] = {}
+
+    def flag_conditions(flag: str):
+        if flag not in flag_cache:
+            flag_cache[flag] = route_conditions(
+                unlocks_mod.flag_routes(flag, extraction.unlocks, config), strict=True
+            )
+        return flag_cache[flag]
+
+    extraction.gates = build_gates(
+        extraction.technologies,
+        triggers=triggers,
+        named=frozenset(config.names),
+        routes=extraction.unlock_routes,
+        flags=flag_conditions,
+        defined=defined_conditions(load_order),
+    )
+    extraction.perk_contexts = perk_contexts(load_order)
+    extraction.tradition_trees = tradition_trees(load_order)
 
     if expander.stats.missing_scripts:
         extraction.problems.append(

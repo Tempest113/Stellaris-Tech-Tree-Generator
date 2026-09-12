@@ -36,9 +36,11 @@ export const AREA_ACCENT: Record<string, string> = {
 export const CRISIS_ACCENT: Record<string, string> = {
   blokkats: "#52d97e",
   sirens: "#b07be0",
-  aeternum: "#d8bd5a",
-  compound: "#5fc2c8",
-  katzen: "#e07fae",
+  aeternum: "#e07fae",
+  /** Deep violet, from the hue of Stellaris' own dark matter resource icon,
+   *  lifted enough to stay legible as label text. */
+  compound: "#6e4ad8",
+  katzen: "#d8bd5a",
 };
 
 /** Fallback for a crisis row the palette does not know yet. */

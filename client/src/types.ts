@@ -16,7 +16,7 @@ export type NodeFlag =
   | "start"
   | "spilled"
   | "variant"
-  | "perk-gated"
+  | "gated"
   | "perk-inherited";
 
 /** Index into `dataset.edgeKinds`. */
@@ -40,6 +40,9 @@ export interface RawNode {
   sw?: string;
   /** Atlas slot of the perk badge; -1 when the perk ships no art. */
   pb?: number;
+  /** How an undrawable technology arrives, as a card tag: "Event", "Starting",
+   *  "Observation Insight", or a manual override. */
+  tg?: string;
   f?: NodeFlag[];
   $?: number;
   lv?: number;
@@ -117,11 +120,13 @@ export interface TechNode {
   undrawable: boolean;
   isStart: boolean;
   spilled: boolean;
-  /** Behind at least one ascension perk, declared or inherited. Independent
-   *  of `undrawable`: a technology can be perk-gated and event-granted at once. */
-  perkGated: boolean;
-  /** Every gate is inherited through a prerequisite; none is declared here. */
+  /** Behind at least one gate -- a perk, tradition, origin or civic --
+   *  declared or inherited. */
+  gated: boolean;
+  /** The card badge's perk gate is inherited through a prerequisite. */
   perkInherited: boolean;
+  /** How an undrawable technology arrives, in a word or two for the card. */
+  tag?: string;
   /** Atlas slot for the card's perk badge: -1 for a perk without art,
    *  `undefined` for no badge at all. */
   perkBadge?: number;
@@ -162,7 +167,8 @@ export function expand(raw: RawDataset): Dataset {
     undrawable: flags(node, "undrawable"),
     isStart: flags(node, "start"),
     spilled: flags(node, "spilled"),
-    perkGated: flags(node, "perk-gated"),
+    gated: flags(node, "gated"),
+    tag: node.tg,
     perkInherited: flags(node, "perk-inherited"),
     perkBadge: node.pb,
     variant: flags(node, "variant"),

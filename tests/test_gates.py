@@ -1,4 +1,4 @@
-"""Ascension perk gates: which perks stand between an empire and a technology."""
+"""Gates: what an empire has to have chosen before it can research a technology."""
 
 from __future__ import annotations
 
@@ -6,22 +6,37 @@ from pathlib import Path
 
 import pytest
 
+from pipeline import graph as graph_mod
 from pipeline.clausewitz import parse
-from pipeline.gates import GateKind, perk_gates
+from pipeline.gates import (
+    Condition,
+    Gate,
+    GateKind,
+    condition_name,
+    gates_for,
+    strongest,
+    with_inherited,
+)
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
-from pipeline.records import build_record, extract
+from pipeline.records import Extraction, build_record, extract
 from pipeline.triggers import TriggerIndex
+from pipeline.unlocks import Route, RouteKind
 
-#: Technologies declaring at least one ascension perk gate.
-GATED_COUNT = 85
+#: Technologies declaring at least one gate.
+GATED_COUNT = 113
+#: Of those, gated by at least one ascension perk.
+PERK_GATED_COUNT = 90
 #: Technologies with no gate of their own that inherit one through what they need.
-INHERITED_ONLY_COUNT = 43
-#: Distinct perk keys doing the gating. Higher than the number of perks a player
-#: would name, because Galactic Wonders ships four DLC-conditional keys.
-GATING_PERK_COUNT = 20
-#: Reached only by resolving a scripted trigger. Without that resolution these
-#: report no gate at all.
-VIA_TRIGGER_COUNT = 27
+INHERITED_ONLY_COUNT = 51
+
+
+def perk(key: str) -> Condition:
+    return Condition("perk", key)
+
+
+def one(*conditions: Condition) -> tuple[tuple[Condition, ...], ...]:
+    """A gate with one alternative per condition."""
+    return tuple((c,) for c in conditions)
 
 
 @pytest.fixture(scope="module")
@@ -34,6 +49,11 @@ def built(install, gigas_root: Path):
     return extract(load_order)
 
 
+@pytest.fixture(scope="module")
+def effective(built):
+    return with_inherited(graph_mod.build(built), built.gates)
+
+
 def _record(body: str, key: str = "t"):
     tree = parse(f"{key} = {{ area = physics tier = 1 {body} }}")
     return build_record(key, tree.get_first(key))
@@ -44,193 +64,192 @@ def _triggers(source: str) -> TriggerIndex:
     return TriggerIndex(definitions={p.key: p.value for p in tree.pairs()})
 
 
+def _gates(body: str, **kwargs):
+    return gates_for(_record(body), **kwargs)
+
+
 # --------------------------------------------------------------------------
 # Unit: potential
 # --------------------------------------------------------------------------
 
 
 def test_perk_in_potential_is_a_hard_gate():
-    gates = perk_gates(_record("potential = { has_ascension_perk = ap_x }"))
-    assert len(gates) == 1
-    assert gates[0].perks == ("ap_x",)
-    assert gates[0].kind is GateKind.REQUIRED
+    gates = _gates("potential = { has_ascension_perk = ap_x }")
+    assert [(g.alternatives, g.kind) for g in gates] == [(one(perk("ap_x")), GateKind.REQUIRED)]
 
 
 def test_negated_perk_is_not_a_gate():
     """``NOT = { has_ascension_perk = x }`` excludes the perk, it does not need it."""
-    gates = perk_gates(_record("potential = { NOT = { has_ascension_perk = ap_x } }"))
-    assert gates == ()
+    assert _gates("potential = { NOT = { has_ascension_perk = ap_x } }") == ()
 
 
 def test_perk_under_a_changed_scope_is_not_a_gate():
     """What another empire has taken does not gate this one's research."""
-    gates = perk_gates(
-        _record("potential = { any_country = { has_ascension_perk = ap_x } } ")
-    )
-    assert gates == ()
+    assert _gates("potential = { any_country = { has_ascension_perk = ap_x } }") == ()
 
 
 def test_alternatives_in_one_condition_form_one_gate():
-    """An OR of perks is a single gate satisfied by any member, not several gates."""
-    gates = perk_gates(
-        _record("potential = { OR = { has_ascension_perk = ap_x has_ascension_perk = ap_y } }")
-    )
-    assert len(gates) == 1
-    assert gates[0].perks == ("ap_x", "ap_y")
+    gates = _gates("potential = { OR = { has_ascension_perk = ap_x has_ascension_perk = ap_y } }")
+    assert [g.alternatives for g in gates] == [one(perk("ap_x"), perk("ap_y"))]
 
 
 def test_separate_conditions_form_separate_gates():
     """A potential block is an implicit AND, so both perks are needed."""
-    gates = perk_gates(
-        _record("potential = { has_ascension_perk = ap_x has_ascension_perk = ap_y }")
+    gates = _gates("potential = { has_ascension_perk = ap_x has_ascension_perk = ap_y }")
+    assert [g.alternatives for g in gates] == [one(perk("ap_x")), one(perk("ap_y"))]
+
+
+def test_an_unconstrained_alternative_removes_the_gate():
+    """The old bug: an OR with any other route in does not require the perk."""
+    gates = _gates("potential = { OR = { has_country_flag = x has_ascension_perk = ap_y } }")
+    assert gates == ()
+
+
+def test_non_perk_choices_are_alternatives_too():
+    """The Vat: a tradition route and a perk route are both ways in."""
+    gates = _gates(
+        "potential = { has_ascension_perk = ap_wonders "
+        "OR = { has_active_tradition = tr_genetics has_ascension_perk = ap_mechromancy } }"
     )
-    assert [g.perks for g in gates] == [("ap_x",), ("ap_y",)]
+    assert [g.alternatives for g in gates] == [
+        one(perk("ap_wonders")),
+        one(Condition("tradition", "tr_genetics"), perk("ap_mechromancy")),
+    ]
+
+
+def test_ai_only_alternatives_are_dropped():
+    """``is_ai = yes`` can never hold for a player."""
+    gates = _gates(
+        "potential = { OR = { AND = { is_ai = yes has_country_flag = x } has_ascension_perk = ap_y } }"
+    )
+    assert [g.alternatives for g in gates] == [one(perk("ap_y"))]
+
+
+def test_a_condition_the_load_order_never_defines_is_not_a_route():
+    """Compatibility checks for absent mods can never be met."""
+    defined = {"tradition": frozenset({"tr_real"}), "perk": frozenset({"ap_y"})}
+    gates = _gates(
+        "potential = { OR = { has_active_tradition = tr_other_mod has_ascension_perk = ap_y } }",
+        defined=defined,
+    )
+    assert [g.alternatives for g in gates] == [one(perk("ap_y"))]
+
+
+def test_nested_and_inside_or_becomes_a_combined_alternative():
+    gates = _gates(
+        "potential = { OR = { AND = { has_ascension_perk = ap_a has_origin = origin_b } "
+        "has_ascension_perk = ap_c } }"
+    )
+    assert [g.alternatives for g in gates] == [
+        ((perk("ap_a"), Condition("origin", "origin_b")), (perk("ap_c"),))
+    ]
+
+
+def test_multi_child_not_is_a_nor():
+    """``NOT = { a b }`` in Stellaris holds when neither holds; neither is required."""
+    assert _gates("potential = { NOT = { has_ascension_perk = ap_a has_ascension_perk = ap_b } }") == ()
 
 
 # --------------------------------------------------------------------------
-# Unit: scripted triggers
+# Unit: scripted triggers and flags
 # --------------------------------------------------------------------------
 
 
 def test_scripted_trigger_is_followed_to_the_perk_behind_it():
-    """Gigastructures gates its megastructures this way and names no perk directly."""
     triggers = _triggers("has_gc = { or = { is_ai = yes has_ascension_perk = ap_gc } }")
-    gates = perk_gates(_record("potential = { has_gc = yes }"), triggers)
-    assert len(gates) == 1
-    assert gates[0].perks == ("ap_gc",)
-    assert gates[0].via_trigger == "has_gc"
+    gates = _gates("potential = { has_gc = yes }", triggers=triggers)
+    assert [(g.alternatives, g.via_trigger) for g in gates] == [(one(perk("ap_gc")), "has_gc")]
 
 
-def test_trigger_naming_several_perks_yields_one_alternative_group():
-    """Galactic Wonders: four DLC-conditional keys, one perk as far as a player is concerned."""
-    triggers = _triggers(
-        "has_gw = { or = { has_ascension_perk = ap_gw has_ascension_perk = ap_gw_utopia } }"
-    )
-    gates = perk_gates(_record("potential = { has_gw = yes }"), triggers)
-    assert len(gates) == 1
-    assert gates[0].perks == ("ap_gw", "ap_gw_utopia")
+def test_a_named_trigger_is_kept_whole():
+    """``has_genetically_ascended`` reads as one choice, not four tradition finishers."""
+    triggers = _triggers("has_ga = { OR = { has_tradition = tr_a has_tradition = tr_b } }")
+    gates = _gates("potential = { has_ga = yes }", triggers=triggers, named=frozenset({"has_ga"}))
+    assert [g.alternatives for g in gates] == [one(Condition("trigger", "has_ga"))]
 
 
-def test_trigger_is_only_followed_when_asserted():
-    """``has_gc = no`` asks for its absence and must not report the perk."""
+def test_trigger_equals_no_negates_its_body():
     triggers = _triggers("has_gc = { has_ascension_perk = ap_gc }")
-    assert perk_gates(_record("potential = { has_gc = no }"), triggers) == ()
-
-
-def test_nested_triggers_resolve():
-    triggers = _triggers(
-        "outer = { inner = yes }\ninner = { has_ascension_perk = ap_deep }"
-    )
-    gates = perk_gates(_record("potential = { outer = yes }"), triggers)
-    assert gates[0].perks == ("ap_deep",)
+    assert _gates("potential = { has_gc = no }", triggers=triggers) == ()
 
 
 def test_self_referential_trigger_terminates():
-    """A mod can define a trigger in terms of itself; the build must not hang."""
     triggers = _triggers("loopy = { loopy = yes has_ascension_perk = ap_x }")
-    gates = perk_gates(_record("potential = { loopy = yes }"), triggers)
+    gates = _gates("potential = { loopy = yes }", triggers=triggers)
     assert gates[0].perks == ("ap_x",)
 
 
-def test_unknown_trigger_is_ignored():
-    gates = perk_gates(_record("potential = { some_unknown_trigger = yes }"), _triggers(""))
+def test_a_flag_is_gated_by_whatever_sets_it():
+    """The planet killers test ``colossus_project``, set only by the Colossus Project."""
+    setters = {"colossus_project": (perk("ap_colossus"),)}
+    gates = _gates("potential = { has_country_flag = colossus_project }", flags=setters.get)
+    assert [g.alternatives for g in gates] == [one(perk("ap_colossus"))]
+
+
+def test_a_flag_anyone_can_come_by_is_unconstrained():
+    gates = _gates("potential = { has_country_flag = anything }", flags=lambda flag: None)
     assert gates == ()
 
 
 # --------------------------------------------------------------------------
-# Unit: weight modifiers
+# Unit: weight modifiers and unlock routes
 # --------------------------------------------------------------------------
 
 
 def test_zeroing_weight_modifier_is_an_undrawable_gate():
-    gates = perk_gates(
-        _record(
-            "weight_modifier = { modifier = { factor = 0 "
-            "NOT = { has_ascension_perk = ap_x } } }"
-        )
-    )
-    assert len(gates) == 1
-    assert gates[0].perks == ("ap_x",)
-    assert gates[0].kind is GateKind.UNDRAWABLE
+    gates = _gates("weight_modifier = { modifier = { factor = 0 NOT = { has_ascension_perk = ap_x } } }")
+    assert [(g.alternatives, g.kind) for g in gates] == [(one(perk("ap_x")), GateKind.UNDRAWABLE)]
 
 
 def test_a_nonzero_factor_does_not_gate():
-    """Scaling the draw weight makes a technology unlikely, not unavailable."""
-    gates = perk_gates(
-        _record(
-            "weight_modifier = { modifier = { factor = 0.1 "
-            "NOT = { has_ascension_perk = ap_x } } }"
-        )
-    )
+    gates = _gates("weight_modifier = { modifier = { factor = 0.1 NOT = { has_ascension_perk = ap_x } } }")
     assert gates == ()
 
 
 def test_a_conditional_zero_does_not_gate():
-    """The sixteen ``tech_fe_*_1`` technologies.
-
-    ``factor = 0`` fires only once the empire already holds four fallen-empire
-    technologies, so Cosmogenesis lifts a cap rather than gating the
-    technology. Reporting it as a gate would be untrue.
-    """
-    gates = perk_gates(
-        _record(
-            "weight_modifier = { modifier = { factor = 0 "
-            "NOT = { has_ascension_perk = ap_cosmogenesis } "
-            "calc_true_if = { amount >= 4 has_technology = tech_fe_lab_1 } } }"
-        )
+    """The sixteen ``tech_fe_*_1`` technologies: the zero bites only past a cap."""
+    gates = _gates(
+        "weight_modifier = { modifier = { factor = 0 "
+        "NOT = { has_ascension_perk = ap_cosmogenesis } "
+        "calc_true_if = { amount >= 4 has_technology = tech_fe_lab_1 } } }"
     )
     assert gates == ()
 
 
-def test_alternatives_inside_the_single_condition_are_kept():
-    """``NOR = { crisis_level perk }`` still makes the perk a genuine route in."""
-    gates = perk_gates(
-        _record(
-            "weight_modifier = { modifier = { factor = 0 "
-            "NOR = { has_crisis_level = crisis_x has_ascension_perk = ap_x } } }"
-        )
+def test_alternatives_inside_a_zeroing_nor_are_kept():
+    gates = _gates(
+        "weight_modifier = { modifier = { factor = 0 "
+        "NOR = { has_crisis_level = crisis_x_level_5 has_ascension_perk = ap_x } } }"
     )
-    assert len(gates) == 1
-    assert gates[0].perks == ("ap_x",)
+    assert [g.alternatives for g in gates] == [one(Condition("crisis", "crisis_x_level_5"), perk("ap_x"))]
 
 
-def test_a_grant_gates_an_undrawable_technology():
-    record = _record("weight = 0", key="mega")
-    gates = perk_gates(record, grants={"mega": ("ap_wonders",)})
-    assert [(g.perks, g.kind) for g in gates] == [(("ap_wonders",), GateKind.GRANTED)]
+def test_a_perk_route_gates_an_undrawable_technology():
+    routes = (Route(RouteKind.PERK, "ap_wonders", ()),)
+    gates = gates_for(_record("weight = 0"), unlock_routes=routes)
+    assert [(g.alternatives, g.kind) for g in gates] == [(one(perk("ap_wonders")), GateKind.GRANTED)]
 
 
-def test_a_grant_does_not_gate_a_drawable_technology():
+def test_a_perk_route_does_not_gate_a_drawable_technology():
     """The perk is a shortcut there, not the only way in."""
-    record = _record("weight = 10", key="mega")
-    assert perk_gates(record, grants={"mega": ("ap_wonders",)}) == ()
+    routes = (Route(RouteKind.PERK, "ap_wonders", ()),)
+    assert gates_for(_record("weight = 10"), unlock_routes=routes) == ()
 
 
-def test_an_unconditional_zero_modifier_makes_a_technology_undrawable():
-    """How vanilla writes Dyson Sphere: a real weight, then ``factor = 0``."""
-    record = _record("weight = 20 weight_modifier = { factor = 0 }", key="dyson")
-    assert record.is_undrawable
-    assert not record.is_weightless
-    gates = perk_gates(record, grants={"dyson": ("ap_wonders",)})
-    assert gates[0].kind is GateKind.GRANTED
-
-
-def test_grants_under_another_scope_are_not_collected():
-    from pipeline.gates import _collect_grants
-
-    block = parse(
-        "on_enabled = { add_research_option = mine "
-        "every_country = { add_research_option = theirs } }"
+def test_a_hard_gate_is_not_repeated_as_an_undrawable_one():
+    gates = _gates(
+        "potential = { has_ascension_perk = ap_x } "
+        "weight_modifier = { modifier = { factor = 0 NOT = { has_ascension_perk = ap_x } } }"
     )
-    found: list[str] = []
-    _collect_grants(block, found)
-    assert found == ["mine"]
+    assert [g.kind for g in gates] == [GateKind.REQUIRED]
+
+
+# --------------------------------------------------------------------------
+# Unit: inheritance and presentation
+# --------------------------------------------------------------------------
 
 
 def _graph(source: str):
-    from pipeline import graph as graph_mod
-    from pipeline.records import Extraction
-
     extraction = Extraction()
     for pair in parse(source).pairs():
         extraction.technologies[pair.key] = build_record(pair.key, pair.value)
@@ -238,61 +257,67 @@ def _graph(source: str):
 
 
 def test_a_gate_is_inherited_through_a_hard_prerequisite():
-    from pipeline.gates import PerkGate, with_inherited
-
     graph = _graph(
         "a = { area = physics tier = 1 }\n"
         "b = { area = physics tier = 2 prerequisites = { a } }\n"
-        "c = { area = physics tier = 3 prerequisites = { b } }\n",
+        "c = { area = physics tier = 3 prerequisites = { b } }\n"
     )
-    own = {"a": (PerkGate(("ap_x",), GateKind.REQUIRED),)}
-    effective = with_inherited(graph, own)
-    assert effective["c"] == (PerkGate(("ap_x",), GateKind.REQUIRED, inherited_from="a"),)
+    own = {"a": (Gate(one(perk("ap_x")), GateKind.REQUIRED),)}
+    assert with_inherited(graph, own)["c"] == (
+        Gate(one(perk("ap_x")), GateKind.REQUIRED, inherited_from="a"),
+    )
 
 
 def test_an_or_group_passes_on_only_what_every_option_carries():
-    """One ungated option is a way round the gate."""
-    from pipeline.gates import PerkGate, with_inherited
-
     graph = _graph(
         "a = { area = physics tier = 1 }\n"
         "b = { area = physics tier = 1 }\n"
-        "c = { area = physics tier = 2 prerequisites = { OR = { a b } } }\n",
+        "c = { area = physics tier = 2 prerequisites = { OR = { a b } } }\n"
     )
-    own = {"a": (PerkGate(("ap_x",), GateKind.REQUIRED),)}
+    own = {"a": (Gate(one(perk("ap_x")), GateKind.REQUIRED),)}
     assert "c" not in with_inherited(graph, own)
-
-    both = {**own, "b": (PerkGate(("ap_x",), GateKind.REQUIRED),)}
+    both = {**own, "b": (Gate(one(perk("ap_x")), GateKind.REQUIRED),)}
     assert with_inherited(graph, both)["c"][0].perks == ("ap_x",)
 
 
 def test_a_declared_gate_outranks_the_same_gate_inherited():
-    from pipeline.gates import PerkGate, strongest, with_inherited
-
     graph = _graph(
         "a = { area = physics tier = 1 }\n"
-        "b = { area = physics tier = 2 prerequisites = { a } }\n",
+        "b = { area = physics tier = 2 prerequisites = { a } }\n"
     )
     own = {
-        "a": (PerkGate(("ap_x",), GateKind.REQUIRED),),
-        "b": (PerkGate(("ap_x",), GateKind.UNDRAWABLE),),
+        "a": (Gate(one(perk("ap_x")), GateKind.REQUIRED),),
+        "b": (Gate(one(perk("ap_x")), GateKind.UNDRAWABLE),),
     }
     gates = with_inherited(graph, own)["b"]
     assert len(gates) == 1 and not gates[0].is_inherited
     assert strongest(gates) is gates[0]
 
 
-def test_a_hard_gate_is_not_repeated_as_an_undrawable_one():
-    """The Cosmogenesis lathe technologies state it both ways."""
-    gates = perk_gates(
-        _record(
-            "potential = { has_ascension_perk = ap_x } "
-            "weight_modifier = { modifier = { factor = 0 "
-            "NOT = { has_ascension_perk = ap_x } } }"
-        )
-    )
-    assert len(gates) == 1
-    assert gates[0].kind is GateKind.REQUIRED
+def test_the_badge_prefers_a_gate_that_names_a_perk():
+    tradition = Gate(one(Condition("tradition", "tr_x")), GateKind.REQUIRED)
+    perk_gate = Gate(one(perk("ap_x")), GateKind.UNDRAWABLE)
+    assert strongest((tradition, perk_gate)) is perk_gate
+
+
+class _Loc:
+    def __init__(self, entries):
+        self.entries = entries
+
+    def get(self, key, default=None):
+        return self.entries.get(key, default)
+
+
+def test_a_crisis_level_is_named_after_its_path():
+    """Localised alone, a crisis level is just "Danger"."""
+    loc = _Loc({"ap_cosmogenesis": "Cosmogenesis", "crisis_cosmogenesis_level_3": "Danger"})
+    name = condition_name(Condition("crisis", "crisis_cosmogenesis_level_3"), loc, {})
+    assert name == "Cosmogenesis crisis level 3"
+
+
+def test_a_configured_name_wins():
+    loc = _Loc({"tr_x": "Something Else"})
+    assert condition_name(Condition("tradition", "tr_x"), loc, {"tr_x": "Genetic Ascension"}) == "Genetic Ascension"
 
 
 # --------------------------------------------------------------------------
@@ -301,172 +326,110 @@ def test_a_hard_gate_is_not_repeated_as_an_undrawable_one():
 
 
 @pytest.mark.corpus
-def test_gate_counts(built):
-    gates = built.perk_gates
-    assert len(gates) == GATED_COUNT
-    perks = {p for g in gates.values() for x in g for p in x.perks}
-    assert len(perks) == GATING_PERK_COUNT
-    via = [k for k, g in gates.items() if any(x.via_trigger for x in g)]
-    assert len(via) == VIA_TRIGGER_COUNT
+def test_gate_counts(built, effective):
+    assert len(built.gates) == GATED_COUNT
+    assert sum(1 for gates in built.gates.values() if any(g.perks for g in gates)) == PERK_GATED_COUNT
+    assert len(effective) - len(built.gates) == INHERITED_ONLY_COUNT
 
 
 @pytest.mark.corpus
-def test_the_perk_gate_is_not_the_undrawable_flag(built):
-    """The two overlap but neither implies the other.
-
-    This is why "granted by event" cannot be the label for every technology
-    that is never drawn: it is right for 176, wrong for 18 that are perk-gated
-    as well, and says nothing about 67 that are perk-gated but drawable.
-    """
-    gated = set(built.perk_gates)
-    undrawable = {k for k, r in built.technologies.items() if r.is_undrawable}
-    assert len(undrawable - gated) == 176
-    assert len(undrawable & gated) == 18
-    assert len(gated - undrawable) == 67
-
-
-@pytest.mark.corpus
-def test_undrawable_catches_the_unconditional_zero_modifier(built):
-    """Nine technologies declare a weight and then zero it outright.
-
-    ``weight == 0`` alone misses them, so they carried neither an event label
-    nor, for the three Galactic Wonders grants, a perk gate.
-    """
-    extra = sorted(
-        k for k, r in built.technologies.items() if r.is_undrawable and not r.is_weightless
-    )
-    assert extra == [
-        "tech_btc_1",
-        "tech_dyson_sphere",
-        "tech_leviathan_techgenesis",
-        "tech_matter_decompressor",
-        "tech_nanite_autocannon",
-        "tech_nanite_flak_batteries",
-        "tech_nanite_repair_system",
-        "tech_regenerative_hull_tissue",
-        "tech_ring_world",
-    ]
+def test_the_vat_needs_wonders_and_one_ascension_route(built):
+    """The reported case: genetic ascension or Mechromancy, alongside Galactic Wonders."""
+    gates = built.gates["giga_tech_the_vat"]
+    assert len(gates) == 2
+    wonders, route = gates
+    assert all(c.key.startswith("ap_galactic_wonders") for c in wonders.conditions)
+    assert set(route.conditions) == {
+        Condition("trigger", "has_genetically_ascended"),
+        Condition("tradition", "tr_genetics_finish_extra_traits"),
+        perk("ap_mechromancy"),
+    }
 
 
 @pytest.mark.corpus
-def test_galactic_wonders_megastructures_are_perk_granted(built):
-    """They name no perk themselves; the perk adds them as research options."""
+def test_colossi_are_gated_by_the_colossus_project(built):
+    """Four hops: perk -> event -> special project -> event -> give_technology."""
+    gates = built.gates["tech_colossus"]
+    assert [(g.alternatives, g.kind) for g in gates] == [(one(perk("ap_colossus")), GateKind.GRANTED)]
+
+
+@pytest.mark.corpus
+def test_planet_killers_are_gated_by_the_colossus_project_flag(built):
+    for key in ("tech_pk_cracker", "tech_pk_neutron", "tech_pk_shielder", "tech_pk_godray"):
+        conditions = {c for g in built.gates[key] for c in g.conditions}
+        assert perk("ap_colossus") in conditions, key
+
+
+@pytest.mark.corpus
+def test_galactic_wonders_megastructures_are_handed_out_by_the_perk(built):
     for key in ("tech_dyson_sphere", "tech_ring_world", "tech_matter_decompressor"):
-        gates = built.perk_gates[key]
+        gates = built.gates[key]
         assert [g.kind for g in gates] == [GateKind.GRANTED], key
-        assert all(p.startswith("ap_galactic_wonders") for p in gates[0].perks), key
+        assert all(c.key.startswith("ap_galactic_wonders") for c in gates[0].conditions), key
 
 
 @pytest.mark.corpus
 def test_a_perk_offering_a_drawable_technology_early_is_not_a_gate(built):
     """Galactic Wonders offers Mega-Engineering; any empire can draw it anyway."""
-    for key in ("tech_mega_engineering", "tech_habitat_2", "tech_habitat_3"):
-        assert key in built.perk_grants, key
-        assert key not in built.perk_gates, key
+    for key in ("tech_mega_engineering", "tech_habitat_2"):
+        assert key in built.unlocks.granted_by, key
+        assert key not in built.gates, key
 
 
 @pytest.mark.corpus
-def test_the_qso_chain_inherits_its_gate_from_its_first_technology(install, gigas_root: Path):
-    from pipeline import graph as graph_mod
-    from pipeline.gates import with_inherited
+def test_the_fallen_empire_cap_is_not_reported_as_a_cosmogenesis_gate(built):
+    """Cosmogenesis raises a cap on these; the real gate is Enigmatic Engineering or a late crisis."""
+    conditions = {c for g in built.gates["tech_fe_administration_1"] for c in g.conditions}
+    assert perk("ap_cosmogenesis") not in conditions
+    assert perk("ap_enigmatic_engineering") in conditions
 
-    load_order = (
-        LoadOrder()
-        .add(base_game_source(install.game, install.version))
-        .add(mod_source(gigas_root, key="gigas"))
-    )
-    extraction = extract(load_order)
-    effective = with_inherited(graph_mod.build(extraction), extraction.perk_gates)
+
+@pytest.mark.corpus
+def test_interstellar_habitat_accepts_the_void_dweller_origins(built):
+    """``is_void_dweller_empire`` ORs Voidborne with two origins; Voidborne alone was wrong."""
+    conditions = {c for g in built.gates["giga_tech_interstellar_habitat"] for c in g.conditions}
+    assert perk("ap_voidborn") in conditions
+    assert Condition("origin", "origin_void_dwellers") in conditions
+
+
+@pytest.mark.corpus
+def test_compatibility_checks_for_absent_mods_are_dropped(built):
+    conditions = {c for g in built.gates["giga_tech_maginot_world"] for c in g.conditions}
+    assert Condition("tradition", "frr_supremacy_deterrence_c") not in conditions
+
+
+@pytest.mark.corpus
+def test_the_qso_chain_inherits_its_gate_from_its_first_technology(effective):
     for n in range(2, 7):
         gates = effective[f"giga_tech_quasi_stellar_{n}"]
         assert [(g.perks, g.inherited_from) for g in gates] == [
             (("ap_qso",), "giga_tech_quasi_stellar_1")
         ]
-    assert len(effective) - len(extraction.perk_gates) == INHERITED_ONLY_COUNT
 
 
 @pytest.mark.corpus
-def test_named_technologies_report_the_perk_a_player_would_name(built):
-    expected = {
-        "giga_tech_alderson_disk": ["Gigastructural Constructs"],
-        "giga_tech_matrioshka_brain_1": ["Gigastructural Constructs"],
-        "tech_cosmogenesis_world": ["Cosmogenesis"],
-        "giga_tech_neutronium_gigaforge": ["Galactic Wonders"],
-    }
-    for key, perks in expected.items():
-        gates = built.perk_gates[key]
-        assert len(gates) == 1, key
-        # Keys differ; the localised names are what a reader recognises, and the
-        # four Galactic Wonders keys all resolve to the same words.
-        assert len(gates[0].perks) >= 1, key
-
-
-@pytest.mark.corpus
-def test_galactic_wonders_is_one_gate_not_four(built):
-    """Its four DLC-conditional keys are alternatives within a single gate."""
-    gates = built.perk_gates["giga_tech_neutronium_gigaforge"]
-    assert len(gates) == 1
-    assert len(gates[0].perks) == 4
-    assert all(p.startswith("ap_galactic_wonders") for p in gates[0].perks)
-
-
-@pytest.mark.corpus
-def test_the_fallen_empire_cap_is_not_reported_as_a_cosmogenesis_gate(built):
-    """Cosmogenesis raises a cap on these; Enigmatic Engineering is the real gate."""
-    gates = built.perk_gates["tech_fe_administration_1"]
-    assert [p for g in gates for p in g.perks] == ["ap_enigmatic_engineering"]
-
-
-@pytest.mark.corpus
-def test_gigastructural_constructs_gates_are_all_found_through_the_trigger(built):
-    """None of them names the perk directly."""
-    found = {
+def test_gigastructural_constructs_gates_are_found_through_the_trigger(built):
+    via = {
         key
-        for key, gates in built.perk_gates.items()
+        for key, gates in built.gates.items()
         for gate in gates
-        if "ap_gigastructural_constructs" in gate.perks
+        if "ap_gigastructural_constructs" in gate.perks and gate.via_trigger == "has_gigastructural_constructs"
     }
-    assert len(found) == 9
-    for key in found:
-        gate = next(g for g in built.perk_gates[key] if "ap_gigastructural_constructs" in g.perks)
-        assert gate.via_trigger == "has_gigastructural_constructs"
+    assert {"giga_tech_alderson_disk", "giga_tech_matrioshka_brain_1"} <= via
 
 
 @pytest.mark.corpus
-def test_every_gate_has_art_for_at_least_one_of_its_perks(built):
-    """A gate the reader cannot see a badge for is a gate half-reported.
-
-    Per gate, not per perk: the three DLC-conditional Galactic Wonders keys
-    ship no art of their own and reuse the base perk's, which is correct rather
-    than a gap.
-    """
+def test_every_badged_perk_has_art(built, effective):
+    """A gate the reader cannot see a badge for is a gate half-reported."""
     icons = built.icons
     blind = [
         key
-        for key, gates in built.perk_gates.items()
-        for gate in gates
-        if not any(icons.ascension_perk(p).is_exact for p in gate.perks)
+        for key, gates in effective.items()
+        if (badge := strongest(gates)) is not None
+        and badge.perks
+        and not any(icons.ascension_perk(p).is_exact for p in badge.perks)
     ]
     assert blind == []
-
-
-@pytest.mark.corpus
-def test_only_name_sharing_variants_lack_their_own_art(built):
-    """Pinned so a genuinely missing perk icon cannot hide behind this.
-
-    Each of these is a DLC- or civic-conditional duplicate of a perk that does
-    ship art, and localises to the same words, so the panel shows the base
-    perk's badge. Nothing here is a gap to chase upstream.
-    """
-    icons = built.icons
-    perks = {p for g in built.perk_gates.values() for x in g for p in x.perks}
-    missing = sorted(p for p in perks if not icons.ascension_perk(p).is_exact)
-    assert missing == [
-        "ap_galactic_wonders_megacorp",
-        "ap_galactic_wonders_utopia",
-        "ap_galactic_wonders_utopia_and_megacorp",
-        "ap_organo_machine_interfacing_assimilator",
-    ]
 
 
 @pytest.mark.corpus
@@ -476,6 +439,4 @@ def test_extraction_is_deterministic(install, gigas_root: Path):
         .add(base_game_source(install.game, install.version))
         .add(mod_source(gigas_root, key="gigas"))
     )
-    first = extract(load_order).perk_gates
-    second = extract(load_order).perk_gates
-    assert first == second
+    assert extract(load_order).gates == extract(load_order).gates
