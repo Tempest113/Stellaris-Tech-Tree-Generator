@@ -53,7 +53,7 @@ replaces."""
 key = "compound"
 name = "The Compound"
 reachable_from = ["tech_qnm_utilities"]
-note = """NEEDS REVIEW - see docs/crisis-rows.md.
+note = """Reviewed 2026-09-13: kept as is. See docs/crisis-rows.md.
 
 tech_qnm_utilities is weight 0, so it is granted by event rather than
 researched, and everything downstream of it is the negative mass weapon set.

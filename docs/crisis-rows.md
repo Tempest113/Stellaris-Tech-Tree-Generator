@@ -27,7 +27,7 @@ it uses for situation-log headings:
 | Sirenalia | 14 | High |
 | Aeternum | 3 | High |
 | The Blokkats | 42 | High |
-| The Compound | 15 | **Needs review** |
+| The Compound | 15 | Reviewed, kept as is |
 
 The four high-confidence rows come straight from source files: Gigastructures
 keeps each chain in its own file (`giga_10_katzen.txt`, `giga_18_eawaf.txt` —
@@ -39,9 +39,10 @@ Blokkats is the one group that already spanned all three research areas, so a
 single crisis row is strictly more honest than the three category rows it
 replaces.
 
-## Open question: The Compound and E.H.O.F.
+## Decided: The Compound and E.H.O.F.
 
-**This needs a human decision.** Nothing in the technology data settles it.
+**Reviewed 2026-09-13 and left as is (option 1 below).** Nothing in the
+technology data settles it, so this records the call and the reasoning.
 
 The Compound is currently defined as everything reachable from
 `tech_qnm_utilities`, which is weight 0 and therefore event-granted. That gives
@@ -74,7 +75,7 @@ which is hard to defend from a player's point of view.
    it is a 50-technology self-contained chain either way.
 3. **Merge them** into one Compound/E.H.O.F. row of ~51 technologies.
 
-The 36 unplaced technologies are listed under "Needs review" in
+The 36 technologies left in category rows are listed under "Needs review" in
 `build/crisis-rows.md`.
 
 ## Adding or correcting a row
