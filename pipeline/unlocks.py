@@ -102,6 +102,8 @@ class RouteKind(enum.Enum):
     PERK = "perk"
     #: Adopting a tradition.
     TRADITION = "tradition"
+    #: Reaching a level on a crisis path, such as Cosmogenesis Level 3.
+    CRISIS = "crisis"
     #: A route matched by a rule in ``config/unlocks.toml``.
     TAGGED = "tagged"
     #: Researching another technology; the event behind it is invisible.
@@ -115,7 +117,8 @@ class RouteKind(enum.Enum):
 @dataclass(frozen=True)
 class Route:
     kind: RouteKind
-    #: The perk, tradition or technology involved, or the configured tag.
+    #: The perk, tradition, crisis level or technology involved, or the
+    #: configured tag.
     key: str | None
     #: The grant's container first, its root last.
     chain: tuple[Container, ...]
@@ -676,6 +679,10 @@ def _classify(
     for rank, (pattern, tag) in enumerate(config.route_tags):
         if any(fnmatch.fnmatchcase(name, pattern) for name in names):
             return Route(RouteKind.TAGGED, tag, chain, rank)
+    # After every rule: a crisis level belongs to one path's campaign, so a
+    # route open to everyone that the rules recognise says more.
+    if root_kind == "crisis_levels":
+        return Route(RouteKind.CRISIS, root_key, chain)
     if root_kind == "on_actions" and root_key.startswith("on_game_start"):
         return Route(RouteKind.START, None, chain)
     return Route(RouteKind.EVENT, None, chain)
@@ -684,6 +691,8 @@ def _classify(
 #: Card tags, as a player reads them.
 TAG_EVENT = "Event"
 TAG_START = "Starting"
+#: A crisis level with no name to hand.
+TAG_CRISIS = "Crisis Level"
 #: Never drawn, and nothing the build can read hands it out.
 TAG_UNKNOWN = "Unknown"
 
@@ -693,6 +702,7 @@ def tag_for(
     found: tuple[Route, ...],
     config: UnlockConfig,
     index: UnlockIndex | None = None,
+    crisis_names: dict[str, str] | None = None,
 ) -> str | None:
     """The one word a card has room for about how its technology arrives.
 
@@ -703,9 +713,10 @@ def tag_for(
     Precedence, strongest first: a manual override; a starting technology; a
     perk or tradition route (no tag, the gate says it); a research unlock (no
     tag -- it arrives as a research option the moment its trigger is
-    researched); a configured route tag, earliest rule first; a plain event;
-    game start; debris, for a technology no effect grants but a component
-    requires.
+    researched); a configured route tag, earliest rule first; a crisis level,
+    named by ``crisis_names`` -- "Cosmogenesis Level 5" -- and the earliest
+    level first; a plain event; game start; debris, for a technology no effect
+    grants but a component requires.
     """
     if record.key in config.technology_tags:
         return config.technology_tags[record.key] or None
@@ -721,6 +732,9 @@ def tag_for(
     tagged = sorted((r for r in found if r.kind is RouteKind.TAGGED), key=lambda r: r.rank)
     if tagged:
         return tagged[0].key
+    levels = sorted((r.key for r in found if r.kind is RouteKind.CRISIS and r.key), key=_level_order)
+    if levels:
+        return (crisis_names or {}).get(levels[0], TAG_CRISIS)
     if RouteKind.EVENT in kinds:
         return TAG_EVENT
     if RouteKind.START in kinds:
@@ -730,6 +744,12 @@ def tag_for(
     # No grant found anywhere, and no component to learn it from. Saying
     # "Event" here would be a guess dressed as a finding.
     return TAG_UNKNOWN
+
+
+def _level_order(key: str) -> tuple[int, str]:
+    """Crisis levels by how early on their path they come."""
+    match = re.search(r"(\d+)$", key)
+    return (int(match.group(1)) if match else 0, key)
 
 
 def build(records: dict, index: UnlockIndex, config: UnlockConfig) -> dict[str, tuple[Route, ...]]:
@@ -744,7 +764,14 @@ def build(records: dict, index: UnlockIndex, config: UnlockConfig) -> dict[str, 
     return found
 
 
-def report(records: dict, found: dict, config: UnlockConfig, index: UnlockIndex, localisation) -> str:
+def report(
+    records: dict,
+    found: dict,
+    config: UnlockConfig,
+    index: UnlockIndex,
+    localisation,
+    crisis_names: dict[str, str] | None = None,
+) -> str:
     """A reviewable account of every card tag and what decided it.
 
     Written to ``build/unlock-tags.md`` on every build. Most tags are inferred
@@ -755,7 +782,7 @@ def report(records: dict, found: dict, config: UnlockConfig, index: UnlockIndex,
     """
     by_tag: dict[str, list[str]] = defaultdict(list)
     for key, record in sorted(records.items()):
-        tag = tag_for(record, found.get(key, ()), config, index)
+        tag = tag_for(record, found.get(key, ()), config, index, crisis_names)
         if tag is None:
             continue
         technology_routes = found.get(key, ())
@@ -767,11 +794,18 @@ def report(records: dict, found: dict, config: UnlockConfig, index: UnlockIndex,
             tagged = sorted(
                 (r for r in technology_routes if r.kind is RouteKind.TAGGED), key=lambda r: r.rank
             )
+            levels = sorted(
+                (r for r in technology_routes if r.kind is RouteKind.CRISIS),
+                key=lambda r: _level_order(r.key or ""),
+            )
             if tagged:
                 route = tagged[0]
                 pattern = config.route_tags[route.rank][0]
                 path = " <- ".join(f"{kind}:{name}" for kind, name in route.chain)
                 why = f"rule `{pattern}`: {path}"
+            elif levels:
+                path = " <- ".join(f"{kind}:{name}" for kind, name in levels[0].chain)
+                why = f"crisis level: {path}"
             elif tag == config.debris_tag:
                 why = "no effect grants it; a ship component requires it"
             elif tag == TAG_UNKNOWN:

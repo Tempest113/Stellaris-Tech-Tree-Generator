@@ -24,6 +24,11 @@ has_cybernetic_ascension = "Cybernetic Ascension"
 has_synthetic_ascension = "Synthetic Ascension"
 is_eager_explorer_empire = "Eager Explorers"
 
+# Country flags named here are kept as conditions instead of being traced to
+# whatever sets them. The Blokkat questline sets this one, and Tetradimensional
+# Engineering accepts it in place of Gigastructural Constructs.
+blokkat_bureau_unlocked = "Blokkat Bureau"
+
 # --- Routes -------------------------------------------------------------------
 #
 # A route passing through `via` gets `tag` on its card instead of the generic
@@ -193,15 +198,14 @@ via = "on_actions:on_survey_planet"
 tag = "Survey"
 
 
-# Last, because they belong to one origin's or one crisis path's campaign: a
-# technology with a route open to everyone should be tagged by that route.
+# Last, because they belong to one origin's campaign: a technology with a route
+# open to everyone should be tagged by that route.
 [[route]]
 via = "situations:*"
 tag = "Situation"
 
-[[route]]
-via = "crisis_levels:*"
-tag = "Crisis Level"
+# Crisis levels need no rule. A route that starts at one, and that no rule above
+# matched, is tagged with the level itself: "Cosmogenesis Level 5".
 
 
 # --- Parameter grants ---------------------------------------------------------
@@ -237,3 +241,15 @@ tech_frameworld_defensive_station_2 = "Unobtainable"
 tech_frameworld_defensive_station_3 = "Unobtainable"
 tech_frameworld_defensive_station_4 = "Unobtainable"
 tech_frameworld_defensive_station_5 = "Unobtainable"
+
+# Offered by the special project that first contact with Voidworms starts
+# (grand_archive.2005 -> VOIDWORMS_PROJECT -> grand_archive.2015). The Voidworm
+# Plague situation only checks for it.
+tech_voidworm_immunity = "Special Project"
+
+# Crisis ship weapons. An astral rift can offer each, but defeating the crisis
+# and salvaging its ships is how they are mostly learned: the Unbidden's, then
+# the Prethoryn Scourge's two.
+tech_extradimensional_weapon_1 = "Debris"
+tech_scourge_missile_1 = "Debris"
+tech_swarm_strike_craft_1 = "Debris"

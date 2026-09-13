@@ -167,10 +167,12 @@ def emit(
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
 
-    crisis_names = {c.key: c.name for c in (assignment.crises if assignment else ())}
+    crisis_rows = {c.key: c.name for c in (assignment.crises if assignment else ())}
     icons = extraction.icons
     config = extraction.unlock_config
     all_gates = gates_mod.with_inherited(graph, extraction.gates)
+    levels = extraction.crisis_levels
+    crisis_names = gates_mod.crisis_level_names(levels, localisation, config.names)
 
     # Stable node order so diffs between builds are readable. Node index is
     # position in this list, and nothing else may be used to address a node:
@@ -211,7 +213,7 @@ def emit(
             used_icon_stems.append(stem)
 
         gates = all_gates.get(slot.technology, ())
-        badge = gates_mod.strongest(gates)
+        badge = gates_mod.strongest(gates, levels)
         flags = []
         if record.is_dangerous:
             flags.append("dangerous")
@@ -221,7 +223,7 @@ def emit(
             flags.append("undrawable")
         if gates:
             flags.append("gated")
-        if badge is not None and badge.perks and badge.is_inherited:
+        if badge is not None and gates_mod.badge_perks(badge, levels) and badge.is_inherited:
             flags.append("perk-inherited")
         if record.start_tech:
             flags.append("start")
@@ -249,7 +251,11 @@ def emit(
         if flags:
             node["f"] = flags
         tag = unlocks_mod.tag_for(
-            record, extraction.unlock_routes.get(slot.technology, ()), config, extraction.unlocks
+            record,
+            extraction.unlock_routes.get(slot.technology, ()),
+            config,
+            extraction.unlocks,
+            crisis_names,
         )
         if tag:
             node["tg"] = tag
@@ -263,7 +269,7 @@ def emit(
     if icons:
         for gates in all_gates.values():
             for gate in gates:
-                for perk in gate.perks:
+                for perk in gates_mod.badge_perks(gate, levels):
                     if perk in perk_icons:
                         continue
                     ref = icons.ascension_perk(perk)
@@ -278,15 +284,14 @@ def emit(
     def perk_icon(perk: str) -> int:
         return slot_stems.get(perk_icons.get(perk, ""), -1)
 
-    # The card badge: one perk, from the strongest gate that names one.
+    # The card badge: one perk, from the strongest gate with perk art.
     # Declared before inherited, so a card never names a gate it merely passes
     # along when it has one of its own.
     for node in nodes:
-        badge = gates_mod.strongest(all_gates.get(node["k"], ()))
-        if badge is not None and badge.perks:
-            node["pb"] = next(
-                (s for s in map(perk_icon, badge.perks) if s >= 0), -1
-            )
+        badge = gates_mod.strongest(all_gates.get(node["k"], ()), levels)
+        perks = gates_mod.badge_perks(badge, levels) if badge is not None else ()
+        if perks:
+            node["pb"] = next((s for s in map(perk_icon, perks) if s >= 0), -1)
 
     edges = wire_edges(graph, slots, profiles)
 
@@ -326,7 +331,7 @@ def emit(
                 "group": row.area,
                 "key": row.category,
                 "label": (
-                    crisis_names.get(row.category, row.category)
+                    crisis_rows.get(row.category, row.category)
                     if row.is_crisis
                     else localisation.get(row.category) or row.category.replace("_", " ").title()
                 ),
@@ -364,10 +369,16 @@ def emit(
 
     def condition_payload(condition: gates_mod.Condition) -> dict:
         entry: dict = {
-            "n": gates_mod.condition_name(condition, localisation, config.names),
+            "n": gates_mod.condition_name(condition, localisation, config.names, levels),
             "t": condition.kind,
         }
-        icon_slot = perk_icon(condition.key) if condition.kind == "perk" else -1
+        # A crisis level wears the art of the perk that starts its path.
+        if condition.kind == "perk":
+            icon_slot = perk_icon(condition.key)
+        elif condition.kind == "crisis" and condition.key in levels:
+            icon_slot = perk_icon(levels[condition.key].perk)
+        else:
+            icon_slot = -1
         if icon_slot >= 0:
             entry["i"] = icon_slot
         context = config.contexts.get(condition.key) or extraction.perk_contexts.get(condition.key)
@@ -421,6 +432,8 @@ def emit(
                 name = localisation.get(route.key) or route.key
             elif kind is unlocks_mod.RouteKind.RESEARCH:
                 name = localisation.name(route.key)
+            elif kind is unlocks_mod.RouteKind.CRISIS:
+                name = crisis_names.get(route.key or "", unlocks_mod.TAG_CRISIS)
             elif kind is unlocks_mod.RouteKind.TAGGED:
                 name = route.key
             else:

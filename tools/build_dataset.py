@@ -167,6 +167,9 @@ def main() -> int:
             extraction.unlock_config,
             extraction.unlocks,
             localisation,
+            gates_mod.crisis_level_names(
+                extraction.crisis_levels, localisation, extraction.unlock_config.names
+            ),
         ),
         encoding="utf-8",
     )

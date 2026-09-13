@@ -27,7 +27,15 @@ from typing import Iterable, Iterator
 from .clausewitz import Block, Scalar
 from .clausewitz.nodes import Node
 from . import unlocks as unlocks_mod
-from .gates import Gate, defined_conditions, perk_contexts, route_conditions, tradition_trees
+from .gates import (
+    CrisisLevel,
+    Gate,
+    crisis_levels,
+    defined_conditions,
+    perk_contexts,
+    route_conditions,
+    tradition_trees,
+)
 from .gates import build as build_gates
 from .icons import IconIndex, IconRef
 from .icons import build_index as build_icon_index
@@ -365,13 +373,25 @@ def _parse_swaps(block: Block) -> tuple[TechnologySwap, ...]:
     return tuple(swaps)
 
 
+def _text(block: Block, key: str) -> str | None:
+    """Text of the scalar the engine reads for ``key``: the *last* one declared.
+
+    Four vanilla technologies declare ``weight`` twice, ``weight = 0`` and then
+    ``weight = @tier2weight3``. The later value is the one in force: Dyson
+    Swarm, Arc Furnace and Stellar Cannon are ordinary research, and reading
+    the first declaration drew them as never-offered event technologies.
+    """
+    value = block.get_last(key)
+    return value.value if isinstance(value, Scalar) else None
+
+
 def _parse_cost(block: Block) -> float | None:
     """Read ``cost``, which has two shapes and is sometimes absent entirely.
 
     Ten vanilla technologies write it as a block whose ``factor`` carries the
     number; five omit it altogether.
     """
-    value = block.get_first("cost")
+    value = block.get_last("cost")
     if value is None:
         return None
     if isinstance(value, Scalar):
@@ -390,7 +410,7 @@ def build_record(key: str, block: Block, *, origin: KeyOrigin | None = None) -> 
     technology without them is almost always a sign that expansion did not run,
     and a silent default would bury that.
     """
-    area = block.scalar_text("area")
+    area = _text(block, "area")
     if area is None:
         raise RecordError(
             f"{key}: no 'area'. If this is a template-driven technology, "
@@ -399,7 +419,7 @@ def build_record(key: str, block: Block, *, origin: KeyOrigin | None = None) -> 
     if area not in AREAS:
         raise RecordError(f"{key}: unknown area {area!r}; expected one of {AREAS}")
 
-    tier_text = block.scalar_text("tier")
+    tier_text = _text(block, "tier")
     tier = _number(tier_text)
     if tier is None:
         raise RecordError(
@@ -408,7 +428,7 @@ def build_record(key: str, block: Block, *, origin: KeyOrigin | None = None) -> 
             "if it is an unresolved @variable, the variable table is incomplete."
         )
 
-    levels = _number(block.scalar_text("levels"))
+    levels = _number(_text(block, "levels"))
 
     return TechnologyRecord(
         key=key,
@@ -418,16 +438,16 @@ def build_record(key: str, block: Block, *, origin: KeyOrigin | None = None) -> 
         prerequisites=_parse_prerequisites(block.block_at("prerequisites")),
         swaps=_parse_swaps(block),
         cost=_parse_cost(block),
-        weight=_number(block.scalar_text("weight")),
+        weight=_number(_text(block, "weight")),
         levels=int(levels) if levels is not None else None,
-        cost_per_level=_number(block.scalar_text("cost_per_level")),
-        is_rare=_flag(block.scalar_text("is_rare")),
-        is_dangerous=_flag(block.scalar_text("is_dangerous")) is True,
-        is_reverse_engineerable=_flag(block.scalar_text("is_reverse_engineerable")),
-        start_tech=_flag(block.scalar_text("start_tech")) is True,
-        is_insight=_flag(block.scalar_text("is_insight")) is True,
-        gateway=block.scalar_text("gateway"),
-        declared_icon=block.scalar_text("icon"),
+        cost_per_level=_number(_text(block, "cost_per_level")),
+        is_rare=_flag(_text(block, "is_rare")),
+        is_dangerous=_flag(_text(block, "is_dangerous")) is True,
+        is_reverse_engineerable=_flag(_text(block, "is_reverse_engineerable")),
+        start_tech=_flag(_text(block, "start_tech")) is True,
+        is_insight=_flag(_text(block, "is_insight")) is True,
+        gateway=_text(block, "gateway"),
+        declared_icon=_text(block, "icon"),
         feature_flags=_scalars(block.block_at("feature_flags")),
         weight_groups=_scalars(block.block_at("weight_groups")),
         potential=block.block_at("potential"),
@@ -463,6 +483,8 @@ class Extraction:
     perk_contexts: dict[str, str] = field(default_factory=dict)
     #: Tradition -> its tradition category.
     tradition_trees: dict[str, str] = field(default_factory=dict)
+    #: Crisis level -> the perk whose path it is on, and its place there.
+    crisis_levels: dict[str, CrisisLevel] = field(default_factory=dict)
     #: Non-fatal problems worth surfacing in the build report.
     problems: list[str] = field(default_factory=list)
 
@@ -580,6 +602,7 @@ def extract(
     )
     extraction.perk_contexts = perk_contexts(load_order)
     extraction.tradition_trees = tradition_trees(load_order)
+    extraction.crisis_levels = crisis_levels(load_order)
 
     if expander.stats.missing_scripts:
         extraction.problems.append(

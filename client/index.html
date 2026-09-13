@@ -122,12 +122,13 @@
       #panel .flag.perk { color: var(--rare); border-color: var(--rare); }
 
       #panel ul.perks { list-style: none; padding-left: 0; }
+      /* One complete way in per line. The bar keeps a line that wraps reading
+         as one unit rather than as two ways in. */
       #panel ul.perks li {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin: 6px 0;
+        margin: 4px 0;
+        padding: 2px 0 2px 10px;
+        border-left: 2px solid var(--line);
+        line-height: 26px;
       }
       #panel ul.perks .perk-icon {
         display: inline-block;
@@ -136,18 +137,27 @@
         border-radius: 4px;
         vertical-align: middle;
       }
-      #panel ul.perks em { color: var(--dim); font-style: normal; }
-      #panel ul.perks .condition { display: inline-flex; align-items: center; gap: 6px; }
+      #panel ul.perks em { color: var(--dim); font-style: normal; margin: 0 4px; vertical-align: middle; }
+      #panel ul.perks .condition {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        vertical-align: middle;
+      }
       #panel ul.perks .context { color: var(--dim); font-size: 12px; }
-      #panel ul.perks li.and {
-        margin: 2px 0;
+      #panel ul.perks li.or {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        line-height: 18px;
         font: 600 11px var(--display);
         letter-spacing: 0.12em;
         text-transform: uppercase;
         color: var(--dim);
       }
-      #panel ul.perks .note {
-        flex-basis: 100%;
+      #panel .gate-note {
+        margin: 6px 0 0;
         color: var(--dim);
         font-size: 12px;
       }

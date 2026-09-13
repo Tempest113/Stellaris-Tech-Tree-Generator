@@ -35,7 +35,11 @@ A country flag is resolved through whatever sets it. The planet-killer
 technologies test ``has_country_flag = colossus_project``, and the only thing
 that sets that flag is the event at the end of the Colossus Project, so they are
 gated by the Colossus Project perk. A flag set anywhere a player can reach
-without a perk or tradition is unconstrained like any other test.
+without a perk or tradition is unconstrained like any other test -- unless
+``config/unlocks.toml`` names it. ``giga_tech_tetradimensional_engineering``
+needs Gigastructural Constructs *or* ``blokkat_bureau_unlocked``, which the
+Blokkat questline sets; unnamed, that flag would be a way round the perk and the
+whole gate would vanish, so it is kept as a condition called "Blokkat Bureau".
 
 Where gates are read
 --------------------
@@ -147,7 +151,8 @@ KIND_ORDER = (GateKind.REQUIRED, GateKind.GRANTED, GateKind.UNDRAWABLE)
 
 @dataclass(frozen=True, order=True)
 class Condition:
-    #: ``"perk"``, ``"tradition"``, ``"origin"``, ``"civic"``, ``"crisis"`` or ``"trigger"``.
+    #: ``"perk"``, ``"tradition"``, ``"origin"``, ``"civic"``, ``"crisis"``,
+    #: ``"trigger"`` (a named scripted trigger) or ``"flag"`` (a named country flag).
     kind: str
     key: str
 
@@ -288,6 +293,8 @@ def _evaluate_item(item, ctx: _Context, *, negated: bool, depth: int, seen: froz
         if ctx.defined and kind in ctx.defined and value.value not in ctx.defined[kind]:
             return Truth.TRUE if negated else Truth.FALSE
         return Truth.TRUE if negated else Condition(kind, value.value)
+    if key == "has_country_flag" and not negated and value.value in ctx.named:
+        return Condition("flag", value.value)
     if key == "has_country_flag" and not negated and ctx.flags is not None:
         setters = ctx.flags(value.value)
         return _combine("or", list(setters)) if setters else Truth.TRUE
@@ -506,16 +513,37 @@ def with_inherited(
     return effective
 
 
-def strongest(gates: tuple[Gate, ...]) -> Gate | None:
+def badge_perks(gate: Gate, crisis_levels: dict[str, CrisisLevel] | None = None) -> tuple[str, ...]:
+    """Perks whose art can stand for ``gate`` on a card.
+
+    Its own perks, then the perk behind each crisis level it names:
+    ``giga_tech_fe_megaworkshop_1`` is gated by Cosmogenesis Level 5, which
+    only an empire that took Cosmogenesis ever reaches.
+    """
+    found = list(gate.perks)
+    for condition in gate.conditions:
+        if condition.kind == "crisis" and crisis_levels and condition.key in crisis_levels:
+            found.append(crisis_levels[condition.key].perk)
+    return tuple(dict.fromkeys(found))
+
+
+def strongest(
+    gates: tuple[Gate, ...], crisis_levels: dict[str, CrisisLevel] | None = None
+) -> Gate | None:
     """The one gate a card has room to badge.
 
-    Declared before inherited, then one naming a perk -- the badge needs the
-    perk's art -- then by kind.
+    Declared before inherited, then one with perk art -- a perk, or a crisis
+    level on a perk's path -- then by kind.
     """
     if not gates:
         return None
     return min(
-        gates, key=lambda g: (g.is_inherited, not g.perks, KIND_ORDER.index(g.kind))
+        gates,
+        key=lambda g: (
+            g.is_inherited,
+            not badge_perks(g, crisis_levels),
+            KIND_ORDER.index(g.kind),
+        ),
     )
 
 
@@ -542,23 +570,90 @@ def defined_conditions(load_order: LoadOrder) -> dict[str, frozenset[str]]:
     return defined
 
 
-def condition_name(condition: Condition, localisation, names: dict[str, str]) -> str:
+def condition_name(
+    condition: Condition,
+    localisation,
+    names: dict[str, str],
+    crisis_levels: dict[str, CrisisLevel] | None = None,
+) -> str:
     """What a reader calls ``condition``.
 
     A configured name wins. Crisis levels are localised as a bare stage name --
     "Danger", "Calamity" -- that says nothing out of context, so they are named
-    after the ascension perk that starts their path instead.
+    after the ascension perk that starts their path instead: "Cosmogenesis
+    Level 5", "Galactic Nemesis Level 3".
     """
     if condition.key in names:
         return names[condition.key]
     if condition.kind == "crisis":
+        found = (crisis_levels or {}).get(condition.key)
+        if found is not None:
+            label = localisation.get(found.perk) or found.perk.replace("_", " ").title()
+            return f"{label} Level {found.level}"
         match = re.fullmatch(r"crisis_(?:(\w+)_)?level_(\d+)", condition.key)
         if match:
             path, level = match.groups()
             perk = f"ap_{path}" if path else "ap_become_the_crisis"
             label = localisation.get(perk) or (path or "crisis").replace("_", " ").title()
-            return f"{label} crisis level {level}"
+            return f"{label} Level {level}"
     return localisation.get(condition.key) or condition.key.replace("_", " ").title()
+
+
+@dataclass(frozen=True)
+class CrisisLevel:
+    #: The ascension perk that sets an empire on this level's path.
+    perk: str
+    #: Position on that path, from 1.
+    level: int
+
+
+def crisis_levels(load_order: LoadOrder) -> dict[str, CrisisLevel]:
+    """Crisis level -> the perk whose path it is on, and how far along.
+
+    Neither half is written beside the level. A path in ``common/crisis_paths``
+    lists its levels in order, and the perk that starts it says
+    ``activate_crisis_progression = <path>``. Path and perk names do not line
+    up -- ``behemoth_path`` belongs to ``ap_behemoths``, ``nemesis_path`` to
+    ``ap_become_the_crisis`` -- so guessing one from the other is wrong.
+    """
+    perks = merge_keys(resolve_files(load_order, "common/ascension_perks")).blocks
+    path_perks: dict[str, str] = {}
+    for perk, block in perks.items():
+        if isinstance(block, Block):
+            for path in _scalar_values(block, "activate_crisis_progression"):
+                path_perks.setdefault(path, perk)
+
+    levels: dict[str, CrisisLevel] = {}
+    paths = merge_keys(resolve_files(load_order, "common/crisis_paths")).blocks
+    for path, block in paths.items():
+        perk = path_perks.get(path)
+        listed = block.get_first("levels") if isinstance(block, Block) else None
+        if perk is None or not isinstance(listed, Block):
+            continue
+        for position, level in enumerate(listed.scalars(), start=1):
+            levels.setdefault(level.value, CrisisLevel(perk=perk, level=position))
+    return levels
+
+
+def crisis_level_names(
+    levels: dict[str, CrisisLevel], localisation, names: dict[str, str]
+) -> dict[str, str]:
+    """Crisis level -> what a card calls it."""
+    return {
+        key: condition_name(Condition("crisis", key), localisation, names, levels)
+        for key in levels
+    }
+
+
+def _scalar_values(block: Block, key: str) -> list[str]:
+    """Every scalar under ``key`` anywhere inside ``block``."""
+    found: list[str] = []
+    for pair in block.pairs():
+        if isinstance(pair.value, Block):
+            found.extend(_scalar_values(pair.value, key))
+        elif pair.key == key and isinstance(pair.value, Scalar):
+            found.append(pair.value.value)
+    return found
 
 
 def tradition_trees(load_order: LoadOrder) -> dict[str, str]:

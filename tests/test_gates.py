@@ -10,8 +10,10 @@ from pipeline import graph as graph_mod
 from pipeline.clausewitz import parse
 from pipeline.gates import (
     Condition,
+    CrisisLevel,
     Gate,
     GateKind,
+    badge_perks,
     condition_name,
     gates_for,
     strongest,
@@ -23,11 +25,11 @@ from pipeline.triggers import TriggerIndex
 from pipeline.unlocks import Route, RouteKind
 
 #: Technologies declaring at least one gate.
-GATED_COUNT = 113
+GATED_COUNT = 114
 #: Of those, gated by at least one ascension perk.
-PERK_GATED_COUNT = 90
+PERK_GATED_COUNT = 91
 #: Technologies with no gate of their own that inherit one through what they need.
-INHERITED_ONLY_COUNT = 51
+INHERITED_ONLY_COUNT = 52
 
 
 def perk(key: str) -> Condition:
@@ -186,6 +188,16 @@ def test_a_flag_is_gated_by_whatever_sets_it():
     assert [g.alternatives for g in gates] == [one(perk("ap_colossus"))]
 
 
+def test_a_named_flag_is_kept_as_a_condition():
+    """Tetradimensional Engineering: Gigastructural Constructs, or the Blokkat Bureau."""
+    gates = _gates(
+        "potential = { OR = { has_ascension_perk = ap_gc has_country_flag = bureau } }",
+        flags=lambda flag: None,
+        named=frozenset({"bureau"}),
+    )
+    assert [g.alternatives for g in gates] == [one(perk("ap_gc"), Condition("flag", "bureau"))]
+
+
 def test_a_flag_anyone_can_come_by_is_unconstrained():
     gates = _gates("potential = { has_country_flag = anything }", flags=lambda flag: None)
     assert gates == ()
@@ -310,9 +322,23 @@ class _Loc:
 
 def test_a_crisis_level_is_named_after_its_path():
     """Localised alone, a crisis level is just "Danger"."""
-    loc = _Loc({"ap_cosmogenesis": "Cosmogenesis", "crisis_cosmogenesis_level_3": "Danger"})
-    name = condition_name(Condition("crisis", "crisis_cosmogenesis_level_3"), loc, {})
-    assert name == "Cosmogenesis crisis level 3"
+    loc = _Loc({"ap_become_the_crisis": "Galactic Nemesis", "crisis_level_3": "Danger"})
+    levels = {"crisis_level_3": CrisisLevel(perk="ap_become_the_crisis", level=3)}
+    name = condition_name(Condition("crisis", "crisis_level_3"), loc, {}, levels)
+    assert name == "Galactic Nemesis Level 3"
+
+
+def test_an_unindexed_crisis_level_is_named_from_its_key():
+    loc = _Loc({"ap_cosmogenesis": "Cosmogenesis"})
+    name = condition_name(Condition("crisis", "crisis_cosmogenesis_level_5"), loc, {})
+    assert name == "Cosmogenesis Level 5"
+
+
+def test_a_crisis_level_badges_the_perk_that_starts_its_path():
+    gate = Gate(alternatives=one(Condition("crisis", "c5")), kind=GateKind.UNDRAWABLE)
+    levels = {"c5": CrisisLevel(perk="ap_cosmogenesis", level=5)}
+    assert badge_perks(gate, levels) == ("ap_cosmogenesis",)
+    assert strongest((gate,), levels) is gate
 
 
 def test_a_configured_name_wins():
@@ -422,14 +448,43 @@ def test_gigastructural_constructs_gates_are_found_through_the_trigger(built):
 def test_every_badged_perk_has_art(built, effective):
     """A gate the reader cannot see a badge for is a gate half-reported."""
     icons = built.icons
+    levels = built.crisis_levels
     blind = [
         key
         for key, gates in effective.items()
-        if (badge := strongest(gates)) is not None
-        and badge.perks
-        and not any(icons.ascension_perk(p).is_exact for p in badge.perks)
+        if (badge := strongest(gates, levels)) is not None
+        and (perks := badge_perks(badge, levels))
+        and not any(icons.ascension_perk(p).is_exact for p in perks)
     ]
     assert blind == []
+
+
+@pytest.mark.corpus
+def test_crisis_levels_know_their_perk_and_place(built):
+    """Path and perk names do not line up, so neither is guessed from the other."""
+    levels = built.crisis_levels
+    assert levels["crisis_cosmogenesis_level_5"] == CrisisLevel("ap_cosmogenesis", 5)
+    assert levels["crisis_level_3"] == CrisisLevel("ap_become_the_crisis", 3)
+    assert levels["crisis_behemoth_level_1"] == CrisisLevel("ap_behemoths", 1)
+    assert levels["crisis_hyperthermia_level_2"] == CrisisLevel("ap_galactic_hyperthermia", 2)
+
+
+@pytest.mark.corpus
+def test_the_fallen_empire_megaworkshops_carry_the_cosmogenesis_badge(built, effective):
+    """Drawable only at Cosmogenesis Level 5; the second inherits it from the first."""
+    levels = built.crisis_levels
+    for key in ("giga_tech_fe_megaworkshop_1", "giga_tech_fe_megaworkshop_2"):
+        badge = strongest(effective[key], levels)
+        assert badge_perks(badge, levels) == ("ap_cosmogenesis",), key
+    assert not strongest(effective["giga_tech_fe_megaworkshop_1"], levels).is_inherited
+
+
+@pytest.mark.corpus
+def test_tetradimensional_engineering_needs_constructs_or_the_blokkat_bureau(built):
+    gates = built.gates["giga_tech_tetradimensional_engineering"]
+    assert [set(g.conditions) for g in gates] == [
+        {perk("ap_gigastructural_constructs"), Condition("flag", "blokkat_bureau_unlocked")}
+    ]
 
 
 @pytest.mark.corpus

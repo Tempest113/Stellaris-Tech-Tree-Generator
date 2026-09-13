@@ -15,6 +15,11 @@ const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 12;
 /** Rendered size of a perk icon in the detail panel. */
 const PERK_ICON_PX = 20;
+/**
+ * Most lines the requirements are spelled out as, one complete way in per
+ * line. Past this, multiplying gates out reads worse than listing them.
+ */
+const MAX_REQUIREMENT_LINES = 6;
 
 async function main(): Promise<void> {
   const canvas = document.getElementById("tree") as HTMLCanvasElement;
@@ -122,7 +127,7 @@ async function main(): Promise<void> {
 
   // -- detail panel ------------------------------------------------------
 
-  /** One condition in a gate: a perk, tradition, origin, civic or named trigger. */
+  /** One condition in a gate: a perk, tradition, origin, civic, crisis level, named trigger or flag. */
   type Condition = { n: string; t: string; i?: number; c?: string };
   /**
    * `ap` is a conjunction of gates. Within a gate, `a` lists alternatives; each
@@ -135,7 +140,10 @@ async function main(): Promise<void> {
     v?: string;
   };
   /** A way an undrawable technology reaches a player. */
-  type Route = { k: "perk" | "tradition" | "tagged" | "research" | "start" | "event"; n: string };
+  type Route = {
+    k: "perk" | "tradition" | "crisis" | "tagged" | "research" | "start" | "event";
+    n: string;
+  };
   type Detail = { d: string; p: string[][]; ap?: Gate[]; u?: Route[]; st?: string[] };
   let details: Record<string, Detail> | null = null;
   async function showPanel(index: number): Promise<void> {
@@ -229,51 +237,115 @@ async function main(): Promise<void> {
   /**
    * The gates, spelled out.
    *
-   * Three kinds, kept apart because they are not the same claim. A `required`
-   * gate means the technology does not exist for the empire without it; a
-   * `granted` one that it is never drawn and this is what hands it out; an
-   * `undrawable` one that it exists but is never offered without it, which
-   * still leaves an event free to grant it. Each gate lists its alternatives,
-   * so "Galactic Wonders" and "Genetic Ascension or Mechromancy" read as the
-   * two separate requirements they are. An inherited gate says where it sits.
+   * A technology's gates are a conjunction, and each gate a choice between
+   * alternatives. Read as written -- "Galactic Wonders AND (Genetic Ascension
+   * or Mechromancy)" -- the brackets are doing all the work, so the gates are
+   * multiplied out instead: one line per complete way in, OR between lines.
+   * The Vat reads "Galactic Wonders and Genetic Ascension / OR / Galactic
+   * Wonders and Mechromancy". Only when that would run past
+   * MAX_REQUIREMENT_LINES are the gates listed one by one with AND between.
+   *
+   * What kind of gate it is follows as a note. The kinds are not the same
+   * claim: a `required` gate means the technology does not exist for the
+   * empire without it; a `granted` one that it is never drawn and this is what
+   * hands it out; an `undrawable` one that it exists but is never offered
+   * without it, which still leaves an event free to grant it. An inherited gate
+   * says which technology it comes through.
    */
   function gateSection(gates: Gate[] | undefined): string {
     if (!gates?.length) return "";
-    const notes: Record<Gate["k"], string> = {
-      required: "does not exist without it",
-      granted: "only becomes researchable through it",
-      undrawable: "exists, but is never offered for research without it",
-    };
-    const items = gates
-      .map((gate) => {
-        const alternatives = gate.a
-          .map((alternative) =>
-            alternative
-              .map((c) => {
-                const art = c.i !== undefined ? `<i class="perk-icon" style="${atlasStyle(c.i)}"></i>` : "";
-                const context = c.c ? ` <span class="context">(${escapeHtml(c.c)})</span>` : "";
-                return `<span class="condition">${art}${escapeHtml(c.n)}${context}</span>`;
-              })
-              .join(' <em class="join">+</em> '),
-          )
-          .join(' <em class="join">or</em> ');
-        const note = gate.v
-          ? `inherited through ${escapeHtml(gate.v)}, which ${notes[gate.k]}`
-          : notes[gate.k];
-        return `<li>${alternatives}<span class="note">${note}</span></li>`;
+    const lines = requirementLines(gates);
+    const body = lines
+      ? lines.map((line) => `<li>${conjunction(line)}</li>`).join('<li class="or">or</li>')
+      : gates
+          .map((gate) => `<li>${gate.a.map(conjunction).join(' <em class="join">or</em> ')}</li>`)
+          .join('<li class="or">and</li>');
+    return `<h3>Requirements</h3><ul class="perks">${body}</ul>${gateNotes(gates)}`;
+  }
+
+  /** Every complete way to meet all of `gates`, or null when there are too many. */
+  function requirementLines(gates: Gate[]): Condition[][] | null {
+    let lines: Condition[][] = [[]];
+    for (const gate of gates) {
+      const next: Condition[][] = [];
+      for (const line of lines) {
+        for (const alternative of gate.a) {
+          const merged = [...line];
+          for (const condition of alternative) {
+            if (!merged.some((c) => c.n === condition.n)) merged.push(condition);
+          }
+          next.push(merged);
+        }
+      }
+      // A line that holds everything another line does, and more, is not a
+      // separate way in: "A" already covers "A and B".
+      const names = next.map((line) => new Set(line.map((c) => c.n)));
+      lines = next.filter((_, i) => {
+        const mine = names[i]!;
+        return !names.some(
+          (other, j) =>
+            j !== i &&
+            other.size <= mine.size &&
+            [...other].every((n) => mine.has(n)) &&
+            (other.size < mine.size || j < i),
+        );
+      });
+      if (lines.length > MAX_REQUIREMENT_LINES) return null;
+    }
+    return lines;
+  }
+
+  /** Conditions that must hold together, joined by "and". */
+  function conjunction(conditions: Condition[]): string {
+    return conditions
+      .map((c) => {
+        const art = c.i !== undefined ? `<i class="perk-icon" style="${atlasStyle(c.i)}"></i>` : "";
+        const context = c.c ? ` <span class="context">(${escapeHtml(c.c)})</span>` : "";
+        return `<span class="condition">${art}${escapeHtml(c.n)}${context}</span>`;
       })
-      .join('<li class="and">and</li>');
-    return `<h3>Requirements</h3><ul class="perks">${items}</ul>`;
+      .join(' <em class="join">and</em> ');
+  }
+
+  /** What kind of gates these are, and where inherited ones come from. */
+  function gateNotes(gates: Gate[]): string {
+    const notes: Record<Gate["k"], string> = {
+      required: "does not exist without",
+      granted: "only becomes researchable through",
+      undrawable: "exists, but is never offered for research without",
+    };
+    const groups = new Map<string, Gate[]>();
+    for (const gate of gates) {
+      const key = `${gate.k}|${gate.v ?? ""}`;
+      groups.set(key, [...(groups.get(key) ?? []), gate]);
+    }
+    const sentences = [...groups.values()].map((group) => {
+      const { k, v } = group[0]!;
+      const what =
+        groups.size === 1
+          ? group.length === 1 && group[0]!.a.length === 1 && group[0]!.a[0]!.length === 1
+            ? "it"
+            : "these"
+          : group.map(gateText).join(" and ");
+      const claim = `${notes[k]} ${what}`;
+      return v ? `Inherited through ${v}, which ${claim}.` : `${capitalise(claim)}.`;
+    });
+    return sentences.map((s) => `<p class="gate-note">${escapeHtml(s)}</p>`).join("");
+  }
+
+  function capitalise(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
   }
 
   /** How an undrawable technology reaches a player, when there is more to say than its tag. */
   function routeSection(routes: Route[] | undefined, tag: string | undefined): string {
     if (!routes?.length) return "";
     // A lone route the tag already names adds nothing.
-    if (routes.length === 1 && routes[0]!.k === "tagged" && routes[0]!.n === tag) return "";
+    const lone = routes.length === 1 ? routes[0]! : undefined;
+    if (lone && (lone.k === "tagged" || lone.k === "crisis") && lone.n === tag) return "";
     const phrase: Record<Route["k"], (name: string) => string> = {
       perk: (n) => `Taking the ${n} ascension perk`,
       tradition: (n) => `Adopting ${n}`,
+      crisis: (n) => `Reaching ${n}`,
       tagged: (n) => n,
       research: (n) => `Researching ${n}`,
       start: () => "Game start, for some origins or empires",

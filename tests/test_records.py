@@ -122,6 +122,13 @@ def test_repeated_blocks_are_all_kept():
     assert len(record.modifiers) == 2
 
 
+def test_the_last_declared_weight_is_the_one_in_force():
+    """Vanilla's Dyson Swarm says ``weight = 0`` and then ``weight = 70``."""
+    record = _record("t = { area = physics tier = 2 weight = 0 is_rare = yes weight = 70 }")
+    assert record.weight == 70
+    assert not record.is_undrawable
+
+
 def test_weightless_is_distinct_from_absent_weight():
     """weight = 0 means 'never drawn', which is not the same as unstated."""
     assert _record("t = { area = physics tier = 1 weight = 0 }").is_weightless
@@ -333,8 +340,15 @@ def test_signal_counts_for_rendering(records):
     """is_rare is near-useless in a Gigas build; is_dangerous and weight=0 are not."""
     rare = sum(1 for r in records if r.is_rare)
     assert sum(1 for r in records if r.is_dangerous) == 62
-    assert sum(1 for r in records if r.is_weightless) == 185
+    assert sum(1 for r in records if r.is_weightless) == 182
     assert rare > len(records) * 0.4
+
+
+@pytest.mark.corpus
+def test_machine_age_megastructures_are_ordinary_research(records):
+    """Each declares ``weight`` twice, zero first; the later weight is in force."""
+    for key in ("tech_dyson_swarm", "tech_orbital_arc_furnace", "tech_dyson_gun"):
+        assert not records[key].is_undrawable, key
 
 
 @pytest.mark.corpus

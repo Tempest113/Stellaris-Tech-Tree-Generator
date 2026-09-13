@@ -23,34 +23,34 @@ from pipeline.unlocks import (
     tag_for,
 )
 
+#: Crisis levels count under their generic tag here: naming them needs
+#: localisation, which these tests do not load.
 TAG_COUNTS = {
     "Blokkat Bureau": 36,
     "Crisis Level": 14,
     "Observation Insight": 13,
-    "Special Project": 12,
-    "Debris": 10,
+    "Special Project": 13,
+    "Debris": 13,
     "Covenant": 9,
     "Reality Code": 9,
-    "Anomaly": 8,
+    "Anomaly": 7,
     "Archaeology": 7,
     "Minor Artifact": 7,
     "Mutation Project": 7,
     "Situation": 7,
-    "Astral Rift": 6,
-    "First Contact": 5,
-    "Enclave": 2,
+    "First Contact": 4,
     "Unobtainable": 4,
+    "Astral Rift": 3,
     "Event": 3,
+    "Enclave": 2,
     "Aeternum Bureau": 2,
     "Caravaneers": 2,
     "Combat": 1,
-    "Council Agenda": 1,
     "Flusion Operation": 1,
     "Megastructure": 1,
     "Paragon": 1,
     "Shroud": 1,
     "Starting": 1,
-    "Unknown": 1,
 }
 
 
@@ -134,6 +134,25 @@ def test_a_chain_rooted_in_a_perk_is_a_perk_route():
     )
     found = routes("tech_colossus", index, UnlockConfig())
     assert [(r.kind, r.key) for r in found] == [(RouteKind.PERK, "ap_colossus")]
+
+
+def test_a_chain_rooted_in_a_crisis_level_is_tagged_with_the_level():
+    """The Cosmogenesis technologies, handed out as each level is reached."""
+    index = _index(
+        crisis_levels__crisis_cosmo_level_2=Definition(calls=[("scripted_effects", "perks_2")]),
+        crisis_levels__crisis_cosmo_level_3=Definition(calls=[("scripted_effects", "perks_3")]),
+        scripted_effects__perks_2=Definition(grants=["t"]),
+        scripted_effects__perks_3=Definition(grants=["t"]),
+    )
+    found = routes("t", index, UnlockConfig())
+    assert {(r.kind, r.key) for r in found} == {
+        (RouteKind.CRISIS, "crisis_cosmo_level_2"),
+        (RouteKind.CRISIS, "crisis_cosmo_level_3"),
+    }
+    names = {"crisis_cosmo_level_2": "Cosmogenesis Level 2", "crisis_cosmo_level_3": "Cosmogenesis Level 3"}
+    record = _record("weight = 0", key="t")
+    assert tag_for(record, found, UnlockConfig(), crisis_names=names) == "Cosmogenesis Level 2"
+    assert tag_for(record, found, UnlockConfig()) == "Crisis Level"
 
 
 def test_an_event_fired_on_research_is_a_research_route():
@@ -352,6 +371,8 @@ def test_inferred_tags_for_representative_routes(built):
     expected = {
         "giga_tech_blokkat_laser": "Blokkat Bureau",
         "tech_cosmogenesis_crisis_3": "Crisis Level",
+        "tech_voidworm_immunity": "Special Project",
+        "tech_extradimensional_weapon_1": "Debris",
         "tech_secrets_baol": "Minor Artifact",
         "tech_unique_mutation_tiyanki": "Mutation Project",
         "tech_covenant_cradle": "Covenant",
