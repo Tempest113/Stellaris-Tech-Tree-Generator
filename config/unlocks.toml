@@ -271,3 +271,7 @@ tech_katzen_atomic_munitions = "Event"
 tech_extradimensional_weapon_1 = "Debris"
 tech_scourge_missile_1 = "Debris"
 tech_swarm_strike_craft_1 = "Debris"
+
+# Offered by the dimensional portal special projects a young colony can start
+# (colony.3011), and by one astral rift. Neither reads as its own tag.
+tech_psionic_barrier = "Event"
