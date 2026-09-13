@@ -53,6 +53,11 @@ foreground and dies with the terminal that started it, so if the page will not
 load, check that the terminal is still alive before looking anywhere else.
 `.claude/launch.json` pins port 5180 instead, for editor-driven previews.
 
+To try the tree on a phone, run `npm --prefix client run dev:phone` and open
+the Network address it prints, on the same Wi-Fi. It serves over HTTPS with a
+self-signed certificate the phone asks you to accept once: phone browsers that
+force HTTPS refuse the plain dev server, and Copy Link needs a secure page.
+
 `npm --prefix client run build` writes the deployable static site to
 `client/dist`.
 

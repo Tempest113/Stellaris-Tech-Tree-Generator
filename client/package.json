@@ -6,11 +6,13 @@
   "description": "Canvas 2D renderer for the Stellaris technology tree.",
   "scripts": {
     "dev": "vite",
+    "dev:phone": "vite --host --mode phone",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "typescript": "^5.7.3",
     "vite": "^6.0.11"
   }
