@@ -703,16 +703,23 @@ def compute_views(
     slots,
     definitions: Definitions,
     profiles: tuple[Profile, ...],
-    routes: dict | None = None,
+    routes_for=None,
+    debris: frozenset[str] | set[str] = frozenset(),
 ) -> Views:
     """Which slots each profile shows, and under which name.
 
     A technology is gone for a profile when its ``potential`` is ``FALSE``, or
     when it is ordinary research and some prerequisite it cannot do without is
-    gone: it would never be offered. A technology the research pool never
-    offers is gone too when every way in is an ascension perk or tradition the
-    profile cannot take: The Birch World comes only from Vast Expanses, which
-    no nomad can have.
+    gone: it would never be offered.
+
+    A technology the research pool never offers the profile -- never offered to
+    anyone, or zero-weighted by a modifier that holds for this profile -- is
+    gone too when nothing a player can reach hands it out: every way in is an
+    ascension perk or tradition the profile cannot take, or there is no way in
+    at all. The Birch World comes only from Vast Expanses, which no nomad can
+    have; the second fallen empire buildings are drawn only with Cosmogenesis,
+    which no Wilderness can take. A technology a ship component needs stays,
+    being learned from debris.
 
     Swaps are taken in order and the first whose trigger holds applies, so a
     slot shows when the swap that puts it there *can* be the first to apply. A
@@ -721,11 +728,19 @@ def compute_views(
     """
     from .layout import CRISIS_GROUP
 
+    from .gates import _zeroing_modifiers
     from .unlocks import RouteKind
 
     records = graph.records
     evaluators = tuple(Evaluator(p, definitions) for p in profiles)
-    routes = routes or {}
+    routes_for = routes_for or (lambda key: ())
+
+    def unreachable(ev: Evaluator, ways_in) -> bool:
+        return all(
+            r.kind in (RouteKind.PERK, RouteKind.TRADITION)
+            and ev.available("perk" if r.kind is RouteKind.PERK else "tradition", r.key) is TV.FALSE
+            for r in ways_in
+        )
 
     # Per technology, per profile: does it exist, and how does each swap apply?
     exists: dict[str, int] = {}
@@ -735,16 +750,25 @@ def compute_views(
         gone = 0
         per_profile: list[list[TV]] = []
         defaults: list[TV] = []
+        zeroing = _zeroing_modifiers(record.weight_modifiers)
         for bit, ev in enumerate(evaluators):
             if record.potential is not None and ev.trigger(record.potential) is TV.FALSE:
                 gone |= 1 << bit
-            ways_in = routes.get(key, ()) if record.is_undrawable else ()
-            if ways_in and all(
-                r.kind in (RouteKind.PERK, RouteKind.TRADITION)
-                and ev.available("perk" if r.kind is RouteKind.PERK else "tradition", r.key) is TV.FALSE
-                for r in ways_in
+            elif record.is_undrawable:
+                ways_in = routes_for(key)
+                if ways_in and unreachable(ev, ways_in):
+                    gone |= 1 << bit
+            elif key not in debris and any(
+                _and(
+                    ev._item(item, 0)
+                    for item in modifier.items
+                    if getattr(item, "key", None) != "factor"
+                )
+                is TV.TRUE
+                for modifier in zeroing
             ):
-                gone |= 1 << bit
+                if unreachable(ev, routes_for(key)):
+                    gone |= 1 << bit
             remaining = TV.TRUE
             outcomes: list[TV] = []
             for swap in record.swaps:

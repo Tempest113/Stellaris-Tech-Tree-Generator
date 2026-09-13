@@ -144,6 +144,10 @@ class Definition:
     #: effect like ``add_tech_option_or_research_effect`` grants ``$TECH$``; the
     #: technology is known only at the call site, so the grant is resolved there.
     param_calls: list[tuple[Container, dict[str, str]]] = field(default_factory=list)
+    #: For an event: its trigger requires ``is_ai = yes``. Gigastructures hands
+    #: AI empires "fake" Galactic Wonders this way (``giga_ai_savings.200``),
+    #: which is no route for a player.
+    ai_only: bool = False
 
 
 @dataclass
@@ -442,6 +446,41 @@ def _trigger_technologies(event: Block) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _ai_only(event: Block) -> bool:
+    """Whether an event's trigger holds for AI empires only."""
+    trigger = event.get_first("trigger")
+    return isinstance(trigger, Block) and _requires_ai(trigger)
+
+
+def _requires_ai(block: Block) -> bool:
+    for pair in block.pairs():
+        value = pair.value
+        if pair.key == "is_ai" and isinstance(value, Scalar) and value.value == "yes":
+            return True
+        if pair.key.lower() == "and" and isinstance(value, Block) and _requires_ai(value):
+            return True
+    return False
+
+
+def routes_finder(found: dict, index: UnlockIndex, config: UnlockConfig):
+    """``technology -> routes`` for any technology, drawable or not, cached.
+
+    :func:`build` keeps routes only for never-drawable technologies. An empire
+    profile can make a drawable one never drawn -- a fallen empire building
+    whose weight is zero without Cosmogenesis -- and then needs its routes too.
+    """
+    cache: dict[str, tuple[Route, ...]] = {}
+
+    def lookup(technology: str) -> tuple[Route, ...]:
+        if technology in found:
+            return found[technology]
+        if technology not in cache:
+            cache[technology] = routes(technology, index, config)
+        return cache[technology]
+
+    return lookup
+
+
 def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> UnlockIndex:
     """Index every technology grant, and every call, in the load order.
 
@@ -520,7 +559,10 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
             event_id = pair.value.get_first("id")
             if not isinstance(event_id, Scalar):
                 continue
-            definition = Definition(trigger_technologies=_trigger_technologies(pair.value))
+            definition = Definition(
+                trigger_technologies=_trigger_technologies(pair.value),
+                ai_only=_ai_only(pair.value),
+            )
             _scan(pair.value, definition, effect_names, event_ids)
             index.definitions[("event", event_id.value)] = definition
 
@@ -660,6 +702,8 @@ def _classify(
 ) -> Route | None:
     root_kind, root_key = chain[-1]
     if root_kind in NON_PLAYER_ROOTS:
+        return None
+    if any((d := index.definitions.get(c)) is not None and d.ai_only for c in chain):
         return None
     if root_kind == "ascension_perks":
         return Route(RouteKind.PERK, root_key, chain)

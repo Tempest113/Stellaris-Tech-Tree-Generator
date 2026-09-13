@@ -189,7 +189,12 @@ def emit(
     nodes = []
     profiles: list[frozenset[str]] = []
     views = profiles_mod.compute_views(
-        graph, slots, extraction.profile_definitions, extraction.profiles, extraction.unlock_routes
+        graph,
+        slots,
+        extraction.profile_definitions,
+        extraction.profiles,
+        unlocks_mod.routes_finder(extraction.unlock_routes, extraction.unlocks, config),
+        extraction.unlocks.component_prerequisites,
     )
 
     def presentation(record: TechnologyRecord, swap) -> tuple[str, str]:

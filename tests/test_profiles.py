@@ -21,6 +21,7 @@ from pipeline.profiles import (
 )
 from pipeline.records import extract
 from pipeline.triggers import TriggerIndex
+from pipeline.unlocks import routes_finder
 
 #: Every combination an empire can be created as, all DLC owned. 16 regular (the
 #: four toggles other than Wilderness, free), 10 hive minds (Wilderness forces
@@ -143,7 +144,12 @@ def built(install, gigas_root: Path):
     layout = layout_mod.build(graph, assignment)
     slots = sorted(layout.slots, key=lambda s: (s.row.area, s.row.category, s.column, s.cell_index))
     views = compute_views(
-        graph, slots, extraction.profile_definitions, extraction.profiles, extraction.unlock_routes
+        graph,
+        slots,
+        extraction.profile_definitions,
+        extraction.profiles,
+        routes_finder(extraction.unlock_routes, extraction.unlocks, extraction.unlock_config),
+        extraction.unlocks.component_prerequisites,
     )
     return extraction, slots, views
 
@@ -247,9 +253,28 @@ def test_a_flag_nothing_sets_settles_ring_segment(built):
     settled = _bit(extraction, "regular")
     assert not views.hidden[ring[None]] & settled
     assert views.hidden[ring["giga_tech_ring_world_swap_no_habitables"]] & settled
+
+
+
+@pytest.mark.corpus
+def test_an_ai_only_grant_is_no_way_in(built):
+    """Nomads cannot take Galactic Wonders, and Ring Segment's only other grant is for AI empires."""
+    extraction, slots, views = built
     nomad = _bit(extraction, "regular-nomadic")
-    assert views.hidden[ring[None]] & nomad
-    assert not views.hidden[ring["giga_tech_ring_world_swap_no_habitables"]] & nomad
+    assert all(views.hidden[i] & nomad for i, s in enumerate(slots) if s.technology == "tech_ring_world")
+    kinds = {r.kind.value for r in extraction.unlock_routes["tech_ring_world"]}
+    assert kinds == {"perk"}
+
+
+@pytest.mark.corpus
+def test_a_technology_never_drawn_for_a_profile_and_never_granted_is_gone(built):
+    """The second fallen empire buildings are drawn only with Cosmogenesis, which no Wilderness can take."""
+    extraction, _, views = built
+    lab = views.technology_hidden["tech_fe_lab_2"]
+    assert lab & _bit(extraction, "hive-bio-ships-wilderness")
+    assert not lab & _bit(extraction, "hive-bio-ships")
+    # `factor = 0 is_gestalt = yes`, and nothing hands it out.
+    assert views.technology_hidden["tech_fe_market_1"] & _bit(extraction, "machine")
 
 
 @pytest.mark.corpus
