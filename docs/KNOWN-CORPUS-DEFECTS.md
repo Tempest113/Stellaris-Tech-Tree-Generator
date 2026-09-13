@@ -103,9 +103,9 @@ value *is* its own key:
 ```
 
 This defeats any check that only asks whether the key exists, which is why
-`Localisation.coverage()` reports `placeholder` as a category of its own. The
-renderer shows the key, which is the honest outcome, but it is an upstream bug
-worth reporting to Gigastructures.
+`Localisation.coverage()` reports `placeholder` as a category of its own. It is
+an upstream bug worth reporting to Gigastructures, though no player sees it: the
+technology's potential is `always = no`, so it is disabled and has no card.
 
 **Eight technologies have no description**, seven of them vanilla:
 `giga_tech_improbable_kaiser_moon`, `tech_adaptive_bureaucracy`,

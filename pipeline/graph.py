@@ -262,13 +262,20 @@ def _find_cycle(indegree: dict[str, int], successors: dict[str, list[str]]) -> l
 
 
 def build(extraction: Extraction, *, include_potential_gates: bool = True) -> TechGraph:
-    """Build the dependency graph from canonical records."""
-    records = dict(extraction.technologies)
+    """Build the dependency graph from canonical records.
+
+    Disabled technologies -- a potential no player can meet -- are not nodes.
+    """
+    records = {
+        key: record
+        for key, record in extraction.technologies.items()
+        if key not in extraction.disabled
+    }
     edges: list[Edge] = []
     dangling: dict[str, list[str]] = defaultdict(list)
     exclusions: dict[str, list[str]] = defaultdict(list)
 
-    for record in extraction:
+    for record in records.values():
         for index, group in enumerate(record.prerequisites):
             kind = EdgeKind.ALTERNATIVE if group.is_choice else EdgeKind.PREREQUISITE
             for option in group.options:

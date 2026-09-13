@@ -186,7 +186,8 @@ def assign(
         for root in crisis.reachable_from:
             reachable |= {root} | graph.descendants(root)
 
-        for key, record in technologies.items():
+        # Only what is in the tree: a disabled technology has no card to place.
+        for key, record in graph.records.items():
             if key in assignment.assigned or key in excluded:
                 continue
             reason = _match(crisis, key, record, reachable)
@@ -195,7 +196,7 @@ def assign(
                 assignment.reasons[key] = reason
 
     for key, hints in (uncertainty_hints or {}).items():
-        if key not in assignment.assigned:
+        if key not in assignment.assigned and key in graph.records:
             assignment.uncertain[key] = hints
 
     return assignment

@@ -25,11 +25,13 @@ so the whole ``OR`` stops being a gate. ``OR = { has_country_flag = x
 has_ascension_perk = y }`` does not require the perk, and saying it did was the
 old bug.
 
-Two things are known to be *false* for a player. ``is_ai = yes`` is one, which
+Some things are known to be *false* for a player. ``always = no`` is one --
+Gigastructures disables obsolete technologies with it. ``is_ai = yes`` is another, which
 is what lets ``has_gigastructural_constructs`` -- "an AI with an override flag,
 or the perk" -- still reduce to the perk. The other is a condition naming a perk,
 tradition, origin, civic or crisis level the load order never defines; see
-:data:`DEFINITION_DIRS`.
+:data:`DEFINITION_DIRS`. A technology whose ``potential`` is false outright is
+not in the tree at all: see :func:`is_disabled`.
 
 A country flag is resolved through whatever sets it. The planet-killer
 technologies test ``has_country_flag = colossus_project``, and the only thing
@@ -298,6 +300,8 @@ def _evaluate_item(item, ctx: _Context, *, negated: bool, depth: int, seen: froz
     if key == "has_country_flag" and not negated and ctx.flags is not None:
         setters = ctx.flags(value.value)
         return _combine("or", list(setters)) if setters else Truth.TRUE
+    if lowered == "always" and text in ("yes", "no"):
+        return Truth.TRUE if (text == "yes") != negated else Truth.FALSE
     if lowered == "is_ai" and text in ("yes", "no"):
         holds_for_player = (text == "no") != negated
         return Truth.TRUE if holds_for_player else Truth.FALSE
@@ -410,6 +414,30 @@ def gates_for(
             add(group, GateKind.UNDRAWABLE, via)
 
     return tuple(gates)
+
+
+def is_disabled(
+    record,
+    *,
+    triggers: TriggerIndex | None = None,
+    named: frozenset[str] = frozenset(),
+    flags: Callable[[str], tuple[Condition, ...] | None] | None = None,
+    defined: dict[str, frozenset[str]] | None = None,
+) -> bool:
+    """Whether no player can ever meet ``record``'s ``potential``.
+
+    Gigastructures retires technologies by writing ``always = no`` into their
+    potential and leaving them defined: ``giga_tech_aeternite_weaponry``, the
+    Stellar Ring and Interstellar Ring Worlds among them. Such a technology does
+    not exist for anyone, so it has no card.
+    """
+    if record.potential is None:
+        return False
+    ctx = _Context(triggers=triggers, named=frozenset(named), flags=flags, defined=defined)
+    return any(
+        _evaluate_item(item, ctx, negated=False, depth=0, seen=frozenset()) is Truth.FALSE
+        for item in record.potential.items
+    )
 
 
 def route_conditions(

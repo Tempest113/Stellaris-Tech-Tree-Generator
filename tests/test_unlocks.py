@@ -30,7 +30,7 @@ TAG_COUNTS = {
     "Crisis Level": 14,
     "Observation Insight": 13,
     "Special Project": 13,
-    "Debris": 13,
+    "Debris": 12,
     "Covenant": 9,
     "Reality Code": 9,
     "Anomaly": 7,
@@ -322,7 +322,7 @@ def _tag(built, key: str) -> str | None:
 def test_tag_counts(built):
     from collections import Counter
 
-    counts = Counter(_tag(built, key) for key in built.technologies)
+    counts = Counter(_tag(built, key) for key in built.technologies if key not in built.disabled)
     del counts[None]
     assert dict(counts) == TAG_COUNTS
 

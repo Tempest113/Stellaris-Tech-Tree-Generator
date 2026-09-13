@@ -14,7 +14,7 @@ from pipeline.layout import COLUMN_CONSTRAINT_KINDS, RowKey, check_invariants
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import Extraction, build_record, extract
 
-SLOT_COUNT = 987
+SLOT_COUNT = 979
 ROW_COUNT = 16
 #: Technologies pushed past their own tier band by a higher-tier prerequisite.
 SPILLED_COUNT = 25
@@ -233,7 +233,8 @@ def test_blokkats_is_the_only_category_split_across_areas(built):
 @pytest.mark.corpus
 def test_tier_bands_are_contiguous_and_ordered(built):
     _, layout = built
-    assert [b.tier for b in layout.bands] == list(range(10))
+    # Tiers 6-9 belong only to the ACOT chain, which is disabled without ACOT.
+    assert [b.tier for b in layout.bands] == list(range(6))
     for previous, band in zip(layout.bands, layout.bands[1:]):
         assert band.start == previous.end + 1
 

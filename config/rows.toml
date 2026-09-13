@@ -35,7 +35,9 @@ chain; the disenchanter technologies are all here."""
 key = "aeternum"
 name = "Aeternum"
 source_files = ["giga_11_aeternum.txt"]
-note = """Confident, but only three technologies so far. Expected to grow."""
+note = """Confident, but only two technologies so far. Expected to grow.
+giga_tech_aeternite_weaponry is disabled upstream (potential always = no) and
+has no card."""
 
 [[crisis]]
 key = "blokkats"

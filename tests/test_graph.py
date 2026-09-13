@@ -12,23 +12,17 @@ from pipeline.graph import Edge, EdgeKind, GraphCycleError, TechGraph, find_tech
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import extract
 
-NODE_COUNT = 978
-PREREQUISITE_EDGES = 879
+#: 978 technologies, less eight whose potential no player can meet: four
+#: Gigastructures retired with `always = no`, and four ACOT compatibility
+#: technologies behind `has_acot`, which is `always = no` without ACOT.
+NODE_COUNT = 970
+PREREQUISITE_EDGES = 868
 ALTERNATIVE_EDGES = 76
 #: Gates surviving the scope filter. The corpus holds 27 raw ``has_technology``
 #: references inside ``potential``; 6 of them sit under ``any_country`` or
 #: ``count_country`` in the E.H.O.F. sentient metal chain and describe the state
 #: of the galaxy rather than a dependency, and a 7th is a self-reference.
 POTENTIAL_GATE_EDGES = 21
-
-#: Gigastructures' ACOT chain, absent unless ACOT is loaded.
-DANGLING_TARGETS = {
-    "tech_civil_phanon_application",
-    "tech_dark_matter_power_core_ae",
-    "tech_dark_matter_power_core_dm",
-    "tech_dark_matter_power_core_se",
-}
-
 
 @pytest.fixture(scope="module")
 def built(install, gigas_root: Path):
@@ -256,9 +250,14 @@ def test_build_is_deterministic(built):
 
 
 @pytest.mark.corpus
-def test_dangling_references_are_only_the_acot_chain(built):
+def test_the_acot_chain_is_disabled_rather_than_dangling(built):
+    """Its four technologies need ACOT's, and ``has_acot`` is false without ACOT.
+
+    They are disabled, so nothing left in the graph names a missing technology.
+    """
     referenced = {target for targets in built.dangling.values() for target in targets}
-    assert referenced == DANGLING_TARGETS
+    assert referenced == set()
+    assert "giga_tech_amb_supertensiles_acot_delta" not in built.records
 
 
 @pytest.mark.corpus

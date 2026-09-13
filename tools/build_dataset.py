@@ -117,12 +117,15 @@ def main() -> int:
                 extraction.unlocks,
             )
             for key, record in extraction.technologies.items()
+            if key not in extraction.disabled
         )
         del tags[None]
         print("  tags: " + ", ".join(f"{tag} {count}" for tag, count in tags.most_common()))
 
     graph = graph_mod.build(extraction)
     print(f"graph:   {graph.summary()}")
+    if extraction.disabled:
+        print(f"  disabled, left out: {', '.join(sorted(extraction.disabled))}")
     effective = gates_mod.with_inherited(graph, extraction.gates)
     print(f"gates:   {gates_mod.summary(extraction.gates, effective)}")
 
@@ -162,7 +165,7 @@ def main() -> int:
     tags_report.parent.mkdir(parents=True, exist_ok=True)
     tags_report.write_text(
         unlocks_mod.report(
-            extraction.technologies,
+            graph.records,
             extraction.unlock_routes,
             extraction.unlock_config,
             extraction.unlocks,

@@ -303,7 +303,7 @@ def emit(
                 for s in (extraction.load_order or [])
             ],
             "counts": {
-                "technologies": len(extraction),
+                "technologies": len(graph.records),
                 "slots": len(layout.slots),
                 "edges": len(edges),
                 "rows": len(layout.rows),

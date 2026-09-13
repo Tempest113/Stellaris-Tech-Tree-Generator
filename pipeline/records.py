@@ -32,6 +32,7 @@ from .gates import (
     Gate,
     crisis_levels,
     defined_conditions,
+    is_disabled,
     perk_contexts,
     route_conditions,
     tradition_trees,
@@ -485,6 +486,9 @@ class Extraction:
     tradition_trees: dict[str, str] = field(default_factory=dict)
     #: Crisis level -> the perk whose path it is on, and its place there.
     crisis_levels: dict[str, CrisisLevel] = field(default_factory=dict)
+    #: Technologies whose potential no player can meet. Kept as records, so
+    #: anything naming them still resolves, but left out of the tree.
+    disabled: frozenset[str] = frozenset()
     #: Non-fatal problems worth surfacing in the build report.
     problems: list[str] = field(default_factory=list)
 
@@ -592,13 +596,25 @@ def extract(
             )
         return flag_cache[flag]
 
+    defined = defined_conditions(load_order)
     extraction.gates = build_gates(
         extraction.technologies,
         triggers=triggers,
         named=frozenset(config.names),
         routes=extraction.unlock_routes,
         flags=flag_conditions,
-        defined=defined_conditions(load_order),
+        defined=defined,
+    )
+    extraction.disabled = frozenset(
+        key
+        for key, record in extraction.technologies.items()
+        if is_disabled(
+            record,
+            triggers=triggers,
+            named=frozenset(config.names),
+            flags=flag_conditions,
+            defined=defined,
+        )
     )
     extraction.perk_contexts = perk_contexts(load_order)
     extraction.tradition_trees = tradition_trees(load_order)
