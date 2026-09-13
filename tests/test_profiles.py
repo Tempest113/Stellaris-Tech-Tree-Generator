@@ -394,3 +394,24 @@ def test_what_an_ordinary_empire_starts_with_and_what_changes_it(built):
     # Handed out at the start by an event only beastmasters see.
     assert start("tech_thrusters_bio_integration", "regular-beastmasters").ordinary
     assert start("tech_thrusters_bio_integration", "regular") is None
+
+
+def test_a_technology_the_profile_can_never_have_is_never_had():
+    defs = _definitions()
+    defs.technologies = frozenset({"tech_known", "tech_gone"})
+    ev = Evaluator(Profile("regular"), defs, impossible_technologies=frozenset({"tech_gone"}))
+    assert ev.trigger(parse("has_technology = tech_gone")) is TV.FALSE
+    assert ev.trigger(parse("NOT = { has_technology = tech_gone }")) is TV.TRUE
+    assert ev.trigger(parse("has_technology = tech_known")) is TV.UNKNOWN
+    # A technology of a mod that is not loaded.
+    assert ev.trigger(parse("has_technology = tech_from_elsewhere")) is TV.FALSE
+
+
+@pytest.mark.corpus
+def test_a_way_in_needing_a_technology_the_profile_never_gets_is_closed(built):
+    """Refurbishing Aeternite planetcraft needs Super-Earth Planetary Body Manipulation, which nomads never get."""
+    extraction, _, views = built
+    nomad = _bit(extraction, "regular-nomadic")
+    assert views.technology_hidden["giga_tech_war_planet"] & nomad
+    assert views.technology_hidden["giga_tech_aeternite_planetcraft"] & nomad
+    assert not views.technology_hidden["giga_tech_aeternite_planetcraft"] & _bit(extraction, "regular")

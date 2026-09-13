@@ -59,6 +59,9 @@ from .triggers import TriggerIndex
 
 #: How deep scripted triggers and definition lookups may nest.
 MAX_DEPTH = 10
+#: Readings of the tree before giving up on it settling. Each reading can only
+#: hide more, so the corpus settles in a few; the bound guards against a bug.
+MAX_READINGS = 12
 
 
 class TV(enum.Enum):
@@ -175,6 +178,10 @@ class Definitions:
     #: ``has_country_flag`` test. A flag outside it is never set. ``None`` when
     #: unknown, which leaves every flag open.
     flag_words: frozenset[str] | None = None
+    #: Every technology the load order defines. ``has_technology`` on anything
+    #: else -- a technology of a mod not loaded -- never holds. ``None`` when
+    #: unknown.
+    technologies: frozenset[str] | None = None
 
 
 def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitions:
@@ -289,15 +296,20 @@ class Evaluator:
         *,
         origin: str | None = None,
         civics: frozenset[str] | None = None,
+        impossible_technologies: frozenset[str] = frozenset(),
     ) -> None:
         """``origin`` and ``civics``, when given, settle those choices too: the
         empire has exactly that origin and exactly those civics. An origin no
         condition names stands for an ordinary empire (see :mod:`pipeline.starting`).
+
+        ``impossible_technologies`` are ones the profile can never have, so
+        ``has_technology`` on one of them never holds.
         """
         self.profile = profile
         self.defs = definitions
         self.chosen_origin = origin
         self.chosen_civics = civics
+        self.impossible_technologies = impossible_technologies
         self._available: dict[tuple[str, str], TV] = {}
         self._pending: set[tuple[str, str]] = set()
 
@@ -421,6 +433,11 @@ class Evaluator:
             return _truth(asserted)
         if lowered == "is_ai" and yes_no:
             return _truth(not asserted)
+        if lowered == "has_technology" and not yes_no and "$" not in text:
+            known = self.defs.technologies
+            if text in self.impossible_technologies or (known is not None and text not in known):
+                return TV.FALSE
+            return TV.UNKNOWN
         if lowered == "is_primitive" and yes_no:
             # A pre-FTL civilisation; no player empire is one.
             return polar(TV.FALSE)
@@ -823,7 +840,8 @@ def compute_views(
 
     A technology is gone for a profile when its ``potential`` is ``FALSE``, or
     when it is ordinary research and some prerequisite it cannot do without is
-    gone: it would never be offered.
+    gone: it would never be offered. Anything that tests for a technology gone
+    for the profile reads that test as false.
 
     A technology the research pool never offers the profile -- never offered to
     anyone, or zero-weighted by a modifier that holds for this profile -- is
@@ -850,59 +868,74 @@ def compute_views(
     def unreachable(ev: Evaluator, key: str, ways_in) -> bool:
         return all(route_truth(ev, r, key, index, crisis_levels) is TV.FALSE for r in ways_in)
 
-    # Per technology, per profile: does it exist, and how does each swap apply?
-    exists: dict[str, int] = {}
-    applies: dict[str, list[list[TV]]] = {}
-    still: dict[str, list[TV]] = {}
-    for key, record in records.items():
-        gone = 0
-        per_profile: list[list[TV]] = []
-        defaults: list[TV] = []
-        zeroing = _zeroing_modifiers(record.weight_modifiers)
+    # A technology gone for a profile makes every `has_technology` test for it
+    # false, which can take more technologies with it, so the reading repeats
+    # until nothing more goes. Gone only ever grows, so it settles. A
+    # technology the graph left out is gone for everyone from the start.
+    left_out = (definitions.technologies or frozenset()) - records.keys()
+    gone_before: dict[str, int] = {}
+    for _ in range(MAX_READINGS):
         for bit, ev in enumerate(evaluators):
-            if record.potential is not None and ev.trigger(record.potential) is TV.FALSE:
-                gone |= 1 << bit
-            elif record.is_undrawable:
-                ways_in = routes_for(key)
-                if ways_in and unreachable(ev, key, ways_in):
-                    gone |= 1 << bit
-            elif key not in debris and any(
-                _and(
-                    ev._item(item, 0)
-                    for item in modifier.items
-                    if getattr(item, "key", None) != "factor"
-                )
-                is TV.TRUE
-                for modifier in zeroing
-            ):
-                if unreachable(ev, key, routes_for(key)):
-                    gone |= 1 << bit
-            remaining = TV.TRUE
-            outcomes: list[TV] = []
-            for swap in record.swaps:
-                holds = ev.trigger(swap.trigger) if swap.trigger is not None else TV.UNKNOWN
-                outcomes.append(_and([remaining, holds]))
-                remaining = _and([remaining, _not(holds)])
-            per_profile.append(outcomes)
-            defaults.append(remaining)
-        exists[key] = gone
-        applies[key] = per_profile
-        still[key] = defaults
+            ev.impossible_technologies = left_out | {k for k, m in gone_before.items() if m >> bit & 1}
+            ev._available.clear()
 
-    # Ordinary research behind a prerequisite that is gone is gone too.
-    hidden_tech = dict(exists)
-    for key in graph.topological_order():
-        record = records[key]
-        if record.is_undrawable:
-            continue
-        for group in record.prerequisites:
-            options = [o for o in group.options if o in records]
-            if not options:
+        # Per technology, per profile: does it exist, and how does each swap apply?
+        exists: dict[str, int] = {}
+        applies: dict[str, list[list[TV]]] = {}
+        still: dict[str, list[TV]] = {}
+        for key, record in records.items():
+            gone = 0
+            per_profile: list[list[TV]] = []
+            defaults: list[TV] = []
+            zeroing = _zeroing_modifiers(record.weight_modifiers)
+            for bit, ev in enumerate(evaluators):
+                if record.potential is not None and ev.trigger(record.potential) is TV.FALSE:
+                    gone |= 1 << bit
+                elif record.is_undrawable:
+                    ways_in = routes_for(key)
+                    if ways_in and unreachable(ev, key, ways_in):
+                        gone |= 1 << bit
+                elif key not in debris and any(
+                    _and(
+                        ev._item(item, 0)
+                        for item in modifier.items
+                        if getattr(item, "key", None) != "factor"
+                    )
+                    is TV.TRUE
+                    for modifier in zeroing
+                ):
+                    if unreachable(ev, key, routes_for(key)):
+                        gone |= 1 << bit
+                remaining = TV.TRUE
+                outcomes: list[TV] = []
+                for swap in record.swaps:
+                    holds = ev.trigger(swap.trigger) if swap.trigger is not None else TV.UNKNOWN
+                    outcomes.append(_and([remaining, holds]))
+                    remaining = _and([remaining, _not(holds)])
+                per_profile.append(outcomes)
+                defaults.append(remaining)
+            exists[key] = gone
+            applies[key] = per_profile
+            still[key] = defaults
+
+        # Ordinary research behind a prerequisite that is gone is gone too.
+        hidden_tech = dict(exists)
+        for key in graph.topological_order():
+            record = records[key]
+            if record.is_undrawable:
                 continue
-            everywhere = ~0
-            for option in options:
-                everywhere &= hidden_tech[option]
-            hidden_tech[key] |= everywhere
+            for group in record.prerequisites:
+                options = [o for o in group.options if o in records]
+                if not options:
+                    continue
+                everywhere = ~0
+                for option in options:
+                    everywhere &= hidden_tech[option]
+                hidden_tech[key] |= everywhere
+
+        if hidden_tech == gone_before:
+            break
+        gone_before = hidden_tech
 
     hidden: list[int] = []
     presentations: list[list[tuple[str, int]]] = []

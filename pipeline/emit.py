@@ -212,7 +212,12 @@ def emit(
                 None
                 if hidden >> bit & 1
                 else starting_mod.starts(
-                    record, routes_for(key), profile, extraction.profile_definitions, extraction.unlocks
+                    record,
+                    routes_for(key),
+                    profile,
+                    extraction.profile_definitions,
+                    extraction.unlocks,
+                    views.evaluators[bit].impossible_technologies,
                 )
                 for bit, profile in enumerate(extraction.profiles)
             ]

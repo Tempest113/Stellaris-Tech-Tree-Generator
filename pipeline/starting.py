@@ -126,27 +126,36 @@ def _blocks(record, routes, index) -> list[Block]:
     return found
 
 
-def starts(record, routes, profile: Profile, definitions, index) -> Start | None:
-    """How ``profile`` begins with the technology, or ``None`` when no empire of it can."""
+def starts(
+    record, routes, profile: Profile, definitions, index, impossible: frozenset[str] = frozenset()
+) -> Start | None:
+    """How ``profile`` begins with the technology, or ``None`` when no empire of it can.
+
+    ``impossible`` are technologies the profile can never have.
+    """
     if not record.start_tech and not any(r.kind is RouteKind.START for r in routes):
         return None
-    ordinary = Evaluator(profile, definitions, origin=ORDINARY_ORIGIN, civics=frozenset())
+
+    def reader(**choices) -> Evaluator:
+        return Evaluator(profile, definitions, impossible_technologies=impossible, **choices)
+
+    ordinary = reader(origin=ORDINARY_ORIGIN, civics=frozenset())
     base = _start_truth(ordinary, record, routes, index) is not TV.FALSE
 
     # Only an origin or civic an empire of this kind can actually take is an exception.
-    open_ = Evaluator(profile, definitions)
+    open_ = reader()
     origins, civics = named_choices(_blocks(record, routes, index), definitions.triggers)
     exceptions: list[tuple[str, str]] = []
     for origin in origins:
         if open_.origin(origin) is TV.FALSE:
             continue
-        chosen = Evaluator(profile, definitions, origin=origin, civics=frozenset())
+        chosen = reader(origin=origin, civics=frozenset())
         if (_start_truth(chosen, record, routes, index) is not TV.FALSE) != base:
             exceptions.append(("origin", origin))
     for civic in civics:
         if open_.civic(civic) is TV.FALSE:
             continue
-        chosen = Evaluator(profile, definitions, origin=ORDINARY_ORIGIN, civics=frozenset({civic}))
+        chosen = reader(origin=ORDINARY_ORIGIN, civics=frozenset({civic}))
         if (_start_truth(chosen, record, routes, index) is not TV.FALSE) != base:
             exceptions.append(("civic", civic))
     if not base and not exceptions:

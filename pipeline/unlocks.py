@@ -32,7 +32,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from .clausewitz import Block, Scalar, parse_file
+from .clausewitz import Block, Pair, Scalar, parse_file
 from .clausewitz.roundtrip import NON_SCRIPT_FILENAMES
 from .loadorder import LoadOrder, resolve_files
 
@@ -337,12 +337,70 @@ _SAME_SCOPE = frozenset(
         "random_list", "random", "on_enabled",
     }
 )
-#: Containers whose effects run in the empire's own scope. Other events run in
-#: a planet's, a fleet's or their caller's, where ``is_gestalt`` would ask
-#: about the wrong thing.
+#: Where conditions are read. In the empire's own scope a condition asks about
+#: the empire directly. In an owned thing's scope -- a planet's, a fleet's -- it
+#: asks about the thing, and only what it says inside ``owner = { ... }`` is
+#: about the empire.
+EMPIRE = "empire"
+OWNED = "owned"
+#: Containers whose effects run in the empire's own scope.
 _EMPIRE_SCOPED = frozenset({"country_event", "ascension_perks", "traditions"})
+#: Events that run in the scope of something an empire owns. Any other event
+#: -- a plain ``event``, a situation's -- runs in its caller's scope, which
+#: cannot be told, and its conditions are not read.
+_OWNED_SCOPED = frozenset(
+    {
+        "planet_event", "fleet_event", "ship_event", "pop_event", "pop_group_event",
+        "colony_event", "leader_event", "army_event", "starbase_event",
+        "megastructure_event", "deposit_event",
+    }
+)
 #: Blocks whose ``limit`` must hold for what they contain to run.
 _LIMITED = frozenset({"if", "else_if", "while"})
+#: Trigger blocks that combine conditions without changing scope.
+_LOGIC = frozenset({"and", "or", "not", "nor", "nand", "hidden_trigger", "custom_tooltip"})
+#: A condition that says nothing about the empire. No trigger has this name, so
+#: it reads as unknown.
+_ABOUT_SOMETHING_ELSE = Pair("__about_something_else__", "=", Scalar("yes"))
+
+
+def _scope_of(kind: str) -> str | None:
+    if kind in _EMPIRE_SCOPED:
+        return EMPIRE
+    if kind in _OWNED_SCOPED:
+        return OWNED
+    return None
+
+
+def through_owner(block: Block) -> Block:
+    """A trigger in an owned thing's scope, as what it says about the empire that owns it.
+
+    ``owner = { is_gestalt = no }`` becomes ``AND = { is_gestalt = no }``; every
+    other condition becomes one that reads as unknown, keeping the ``AND``,
+    ``OR`` and ``NOT`` around them, so the result can rule a route out only
+    where the owner's part does.
+    """
+    items = []
+    for item in block.items:
+        if isinstance(item, Block):
+            items.append(through_owner(item))
+            continue
+        key = getattr(item, "key", None)
+        value = getattr(item, "value", None)
+        if key is None:
+            continue
+        lowered = key.lower()
+        if lowered == "owner" and isinstance(value, Block):
+            items.append(Pair("AND", "=", value))
+        elif lowered in _LOGIC and isinstance(value, Block):
+            items.append(Pair(key, "=", through_owner(value)))
+        else:
+            items.append(_ABOUT_SOMETHING_ELSE)
+    return Block(items=items)
+
+
+def _negated(limit: Block) -> Block:
+    return Block(items=[Pair("NAND", "=", limit)])
 
 
 def _scan(
@@ -351,7 +409,7 @@ def _scan(
     effect_names: set[str],
     event_ids: frozenset[str] | set[str] = frozenset(),
     guards: tuple[Block, ...] = (),
-    scoped: bool = False,
+    scope: str | None = None,
 ) -> None:
     """Record what ``node`` grants, sets and fires.
 
@@ -362,22 +420,26 @@ def _scan(
     ``EVENT_ID = grand_archive.10030`` passed to an inline script. Matching on
     the id itself catches all of them without enumerating the forms.
 
-    ``guards`` are the conditions in force so far, and ``scoped`` whether
-    ``node`` is still in the empire's own scope, where more can be added. Only
+    ``guards`` are the conditions in force so far, and ``scope`` where more are
+    read (:data:`EMPIRE`, :data:`OWNED`, or ``None`` for not at all). Only
     conditions are ever left out, never grants or calls, so a condition missed
-    only leaves a route open. An ``else`` adds nothing, though it holds only
-    where the ``limit`` before it does not.
+    only leaves a route open. An ``else_if`` or ``else`` holds where every
+    ``limit`` before it in its chain does not.
     """
 
     def call(callee: Container) -> None:
         definition.calls.append(callee)
         definition.call_guards.setdefault(callee, []).append(guards)
 
+    #: Limits of the ``if`` / ``else_if`` chain so far, or None when there is no chain to follow.
+    chain: list[Block] | None = None
     for item in node.items:
         if isinstance(item, Block):
-            _scan(item, definition, effect_names, event_ids, guards, scoped)
+            chain = None
+            _scan(item, definition, effect_names, event_ids, guards, scope)
             continue
         if isinstance(item, Scalar):
+            chain = None
             if item.value in event_ids:
                 call(("event", item.value))
             continue
@@ -385,6 +447,18 @@ def _scan(
         if key is None:
             continue
         value = item.value
+
+        lowered = key.lower()
+        otherwise: tuple[Block, ...] = ()
+        if lowered in ("else_if", "else") and chain is not None:
+            otherwise = tuple(_negated(limit) for limit in chain)
+        limit = value.get_first("limit") if isinstance(value, Block) else None
+        if lowered == "if":
+            chain = [limit] if isinstance(limit, Block) else None
+        elif lowered == "else_if" and chain is not None and isinstance(limit, Block):
+            chain = chain + [limit]
+        else:
+            chain = None
 
         if key == "set_country_flag" and isinstance(value, Scalar):
             definition.flags.append(value.value)
@@ -437,21 +511,30 @@ def _scan(
                 call(("event", value.value))
             continue
         if isinstance(value, Block) and not _is_foreign(key):
-            _scan(value, definition, effect_names, event_ids, *_inner_guards(key, value, guards, scoped))
+            _scan(value, definition, effect_names, event_ids, *_inner_guards(key, value, guards, scope, otherwise))
 
 
 def _inner_guards(
-    key: str, value: Block, guards: tuple[Block, ...], scoped: bool
-) -> tuple[tuple[Block, ...], bool]:
-    """The conditions in force inside ``key = value``, and whether more can be added there."""
-    if not scoped:
-        return guards, False
+    key: str,
+    value: Block,
+    guards: tuple[Block, ...],
+    scope: str | None,
+    otherwise: tuple[Block, ...] = (),
+) -> tuple[tuple[Block, ...], str | None]:
+    """The conditions in force inside ``key = value``, and where more are read there.
+
+    ``otherwise`` are the negated limits an ``else_if`` or ``else`` stands behind.
+    """
+    if scope is None:
+        return guards, None
     lowered = key.lower()
+    if scope == OWNED and lowered == "owner":
+        return guards, EMPIRE
     if lowered not in _SAME_SCOPE and not re.fullmatch(r"-?\d+(\.\d+)?", key):
         # Another scope: what was in force still is, but a condition in there
         # asks about something other than the empire.
-        return guards, False
-    added: list[Block] = []
+        return guards, None
+    added: list[Block] = list(otherwise)
     if lowered in _LIMITED:
         limit = value.get_first("limit")
         if isinstance(limit, Block):
@@ -461,7 +544,9 @@ def _inner_guards(
             condition = value.get_first(name)
             if isinstance(condition, Block):
                 added.append(condition)
-    return guards + tuple(added), True
+    if scope == OWNED:
+        added = [through_owner(block) for block in added]
+    return guards + tuple(added), scope
 
 
 def _inline_call(value) -> tuple[str | None, dict[str, str]]:
@@ -664,14 +749,18 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
             title = _title(pair.value)
             if title:
                 index.titles[event_id.value] = title
-            scoped = pair.key in _EMPIRE_SCOPED
+            scope = _scope_of(pair.key)
             trigger = pair.value.get_first("trigger")
+            if not isinstance(trigger, Block) or scope is None:
+                trigger = None
+            elif scope == OWNED:
+                trigger = through_owner(trigger)
             definition = Definition(
                 trigger_technologies=_trigger_technologies(pair.value),
                 ai_only=_ai_only(pair.value),
-                trigger=trigger if scoped and isinstance(trigger, Block) else None,
+                trigger=trigger,
             )
-            _scan(pair.value, definition, effect_names, event_ids, scoped=scoped)
+            _scan(pair.value, definition, effect_names, event_ids, scope=scope)
             index.definitions[("event", event_id.value)] = definition
 
     for resolved in common:
@@ -742,7 +831,7 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
             else:
                 kind_key = kind
             definition = Definition()
-            _scan(pair.value, definition, effect_names, event_ids, scoped=kind in _EMPIRE_SCOPED)
+            _scan(pair.value, definition, effect_names, event_ids, scope=_scope_of(kind))
             if kind == "on_actions":
                 for list_key in ("events", "random_events"):
                     listed = pair.value.get_first(list_key)

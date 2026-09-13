@@ -616,6 +616,7 @@ def extract(
     extraction.unlock_config = config
     extraction.unlocks = unlocks_mod.build_index(load_order, config)
     extraction.profile_definitions = profiles_mod.load_definitions(load_order, triggers)
+    extraction.profile_definitions.technologies = frozenset(extraction.technologies)
     extraction.profiles = profiles_mod.valid_profiles(extraction.profile_definitions)
     extraction.crisis_levels = crisis_levels(load_order)
     # A way in no empire can take -- an AI-only branch, a tradition tree the

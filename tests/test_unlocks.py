@@ -129,7 +129,7 @@ def test_the_conditions_on_the_way_to_a_grant_are_kept():
         option = { trigger = { is_ai = no } allow = { is_militarist = yes } country_event = { id = x.2 } }
         option = { give_technology = a }
     """
-    _scan(parse(source), definition, set(), {"x.2"}, scoped=True)
+    _scan(parse(source), definition, set(), {"x.2"}, scope="empire")
     assert _guard_keys(definition.grant_guards["a"]) == [["is_gestalt"], []]
     assert _guard_keys(definition.call_guards[("event", "x.2")]) == [["is_ai", "is_militarist"]]
 
@@ -138,8 +138,39 @@ def test_a_condition_in_another_scope_is_not_read():
     """Inside ``owner`` a limit asks about the owner's planet or fleet, not the empire."""
     definition = Definition()
     source = "if = { limit = { is_gestalt = no } capital_scope = { if = { limit = { is_capital = yes } give_technology = a } } }"
-    _scan(parse(source), definition, set(), scoped=True)
+    _scan(parse(source), definition, set(), scope="empire")
     assert _guard_keys(definition.grant_guards["a"]) == [["is_gestalt"]]
+
+
+def test_an_else_holds_where_the_limits_before_it_do_not():
+    definition = Definition()
+    source = """
+        if = { limit = { is_gestalt = yes } give_technology = a }
+        else_if = { limit = { is_machine_empire = yes } give_technology = b }
+        else = { give_technology = c }
+        give_technology = d
+    """
+    _scan(parse(source), definition, set(), scope="empire")
+    assert _guard_keys(definition.grant_guards["a"]) == [["is_gestalt"]]
+    assert _guard_keys(definition.grant_guards["b"]) == [["NAND", "is_machine_empire"]]
+    assert _guard_keys(definition.grant_guards["c"]) == [["NAND", "NAND"]]
+    assert _guard_keys(definition.grant_guards["d"]) == [[]]
+
+
+def test_a_planet_event_reads_what_it_says_about_the_owner():
+    """``owner = { ... }`` in a planet's scope is the empire; the rest is about the planet."""
+    from pipeline.unlocks import through_owner
+
+    definition = Definition()
+    source = """
+        if = { limit = { is_capital = yes owner = { is_gestalt = no } } give_technology = a }
+        owner = { if = { limit = { is_machine_empire = yes } give_technology = b } }
+    """
+    _scan(parse(source), definition, set(), scope="owned")
+    [[limit]] = definition.grant_guards["a"]
+    assert [p.key for p in limit.pairs()] == ["__about_something_else__", "AND"]
+    assert _guard_keys(definition.grant_guards["b"]) == [["is_machine_empire"]]
+    assert [p.key for p in through_owner(parse("NOT = { owner = { is_ai = yes } }")).pairs()] == ["NOT"]
 
 
 def test_a_container_of_unknown_scope_reads_no_conditions():
