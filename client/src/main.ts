@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   const toolbar = document.getElementById("toolbar") as HTMLElement;
   const isolationBar = document.getElementById("isolation") as HTMLElement;
   const guideDialog = document.getElementById("guide") as HTMLDialogElement;
+  const announcer = document.getElementById("announce") as HTMLElement;
 
   status.textContent = "Loading dataset…";
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
@@ -932,11 +933,154 @@ async function main(): Promise<void> {
     { passive: false },
   );
 
+  // -- keyboard ----------------------------------------------------------
+
+  /** Say something to a screen reader, once. */
+  function announce(text: string): void {
+    announcer.textContent = "";
+    // A fresh node each time, so repeating the same words is still announced.
+    requestAnimationFrame(() => (announcer.textContent = text));
+  }
+
+  /** A technology in a sentence: what it is, where, and how it connects. */
+  function describe(index: number): string {
+    const node = data.nodes[index]!;
+    const row = raw.rows[node.row]?.label ?? "";
+    const needs = new Set(node.incoming.map((i) => data.nodes[i]!.key)).size;
+    const leads = new Set(siblings(index).flatMap((i) => data.nodes[i]!.outgoing).map((i) => data.nodes[i]!.key)).size;
+    const traits = [node.dangerous ? "dangerous" : "", node.rare ? "rare" : "", node.tag ?? ""].filter(Boolean);
+    return (
+      `${node.name}. Tier ${node.tier}, ${row}${traits.length ? `, ${traits.join(", ")}` : ""}. ` +
+      `${needs} ${needs === 1 ? "prerequisite" : "prerequisites"}, leads to ${leads}.`
+    );
+  }
+
+  /** The visible card nearest the middle of the open area. */
+  function nearestToCentre(): number | null {
+    const area = openArea();
+    const centre = camera.toWorld((area.left + area.right) / 2, (area.top + area.bottom) / 2);
+    let best: number | null = null;
+    let distance = Infinity;
+    data.nodes.forEach((node, index) => {
+      if (node.hidden) return;
+      const d = Math.hypot(node.x + CARD_WIDTH / 2 - centre.x, node.y + CARD_HEIGHT / 2 - centre.y);
+      if (d < distance) {
+        best = index;
+        distance = d;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * The card an arrow key steps to from `from`: left to the nearest thing it
+   * needs, right to the nearest thing it leads to, up and down through its
+   * column.
+   */
+  function step(from: number, key: string): number | null {
+    const node = data.nodes[from]!;
+    const nearest = (candidates: number[]) =>
+      candidates
+        .filter((i) => !data.nodes[i]!.hidden)
+        .sort(
+          (a, b) =>
+            Math.abs(data.nodes[a]!.y - node.y) - Math.abs(data.nodes[b]!.y - node.y) ||
+            Math.abs(data.nodes[a]!.x - node.x) - Math.abs(data.nodes[b]!.x - node.x),
+        )[0] ?? null;
+    if (key === "ArrowLeft") return nearest(node.incoming);
+    if (key === "ArrowRight") return nearest(siblings(from).flatMap((i) => data.nodes[i]!.outgoing));
+    const column = data.nodes
+      .map((n, i) => [n, i] as const)
+      .filter(([n]) => !n.hidden && n.column === node.column)
+      .sort(([a], [b]) => a.y - b.y || a.x - b.x)
+      .map(([, i]) => i);
+    const position = column.indexOf(from) + (key === "ArrowUp" ? -1 : 1);
+    return column[position] ?? null;
+  }
+
+  function stepTo(index: number): void {
+    if (selection.pinned !== index) select(index, true);
+    keepCardInView(index);
+    schedule();
+    announce(describe(index));
+  }
+
+  /** Keys that act on the tree while it, rather than a control, has focus. */
+  function treeKey(event: KeyboardEvent): boolean {
+    const PAN = 120;
+    if (event.key.startsWith("Arrow") && event.shiftKey) {
+      const moves: Record<string, [number, number]> = {
+        ArrowLeft: [PAN, 0],
+        ArrowRight: [-PAN, 0],
+        ArrowUp: [0, PAN],
+        ArrowDown: [0, -PAN],
+      };
+      const [dx, dy] = moves[event.key] ?? [0, 0];
+      camera.panBy(dx, dy);
+      schedule();
+      return true;
+    }
+    if (event.key === "+" || event.key === "=" || event.key === "-") {
+      camera.zoomAt(window.innerWidth / 2, window.innerHeight / 2, event.key === "-" ? 0.8 : 1.25);
+      schedule();
+      return true;
+    }
+    const current = selection.pinned;
+    if (event.key.startsWith("Arrow")) {
+      if (current === null) {
+        const start = nearestToCentre();
+        if (start !== null) stepTo(start);
+        return true;
+      }
+      const next = step(current, event.key);
+      if (next !== null) stepTo(next);
+      else {
+        const what = { ArrowLeft: "prerequisites", ArrowRight: "technologies it leads to" }[event.key as string];
+        announce(what ? `${data.nodes[current]!.name} has no ${what} shown.` : "No more cards in this column.");
+      }
+      return true;
+    }
+    if (event.key === "Enter") {
+      if (current === null) {
+        const start = nearestToCentre();
+        if (start !== null) stepTo(start);
+      } else {
+        foldPanel(!panelFolded);
+        keepCardInView(current);
+        schedule();
+        announce(panelFolded ? "Details hidden." : "Details shown.");
+      }
+      return true;
+    }
+    if ((event.key === "i" || event.key === "I") && current !== null) {
+      const here = data.view.isolated !== null && isolatedRoot !== null && data.nodes[isolatedRoot]!.key === data.nodes[current]!.key;
+      if (here) {
+        const key = data.nodes[current]!.key;
+        exitIsolation();
+        // Leaving keeps the keyboard where it was.
+        const again = slotFor(key);
+        if (again !== null) stepTo(again);
+        announce("Showing the whole tree.");
+      } else {
+        const name = data.nodes[current]!.name;
+        isolate(current);
+        announce(`Isolated ${name} and its line.`);
+      }
+      return true;
+    }
+    return false;
+  }
+
   window.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "SELECT")) return;
     // The open guide handles its own keys; Esc closes it natively.
     if (guideDialog.open) return;
+    const onTree = !target || target === canvas || target === document.body;
+    if (onTree && !event.ctrlKey && !event.metaKey && !event.altKey && treeKey(event)) {
+      event.preventDefault();
+      return;
+    }
     if (event.key === "?") {
       event.preventDefault();
       guide.open();

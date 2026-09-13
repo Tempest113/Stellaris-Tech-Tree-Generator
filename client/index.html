@@ -45,6 +45,18 @@
         cursor: grab;
       }
       #tree:active { cursor: grabbing; }
+      #tree:focus-visible { outline: 2px solid var(--rare); outline-offset: -2px; }
+      /* Over the tree, which comes after the toolbar so keyboard order follows the page. */
+      #toolbar, #status, #help, #panel { z-index: 1; }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
 
       #status {
         position: fixed;
@@ -175,7 +187,7 @@
       }
       #search .results .text { display: flex; flex-direction: column; min-width: 0; }
       #search .results .name { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #search .results .meta { color: var(--dim); font-weight: 500; font-size: 11px; }
+      #search .results .meta { color: var(--dim); font-weight: 500; font-size: 12px; }
       #profile select,
       #profile .toggle {
         min-height: 28px;
@@ -257,12 +269,12 @@
       #panel .key {
         margin-top: 24px;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11px;
-        color: #5c6675;
+        font-size: 12px;
+        color: var(--dim);
       }
       #panel .flags { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 6px; }
       #panel .flag {
-        font-size: 11px;
+        font-size: 12px;
         padding: 2px 8px;
         border-radius: 999px;
         border: 1px solid var(--line);
@@ -429,6 +441,7 @@
       #guide span.sample.tag { color: var(--rare); }
       #guide span.sample.muted { color: var(--dim); }
       #guide span.sample.mono { color: var(--dim); font-size: 10px; }
+      #guide .marker { vertical-align: baseline; }
       #guide .swatch {
         display: inline-block;
         width: 10px;
@@ -473,20 +486,27 @@
     </style>
   </head>
   <body>
-    <canvas id="tree"></canvas>
     <div id="toolbar">
       <button id="guide-button" type="button" aria-haspopup="dialog"><span aria-hidden="true">?</span>Guide</button>
       <div id="search" role="search"></div>
       <div id="profile" role="group" aria-label="Empire profile"></div>
       <div id="isolation" role="status" hidden></div>
     </div>
+    <canvas
+      id="tree"
+      tabindex="0"
+      role="application"
+      aria-roledescription="technology tree"
+      aria-label="Technology tree. Arrow keys step between technologies; Enter shows or hides details; I isolates."
+    ></canvas>
     <div id="status">Loading…</div>
     <div id="help">
       hover: highlight &middot; click: pin &middot; middle-click: isolate &middot;
-      <kbd>/</kbd> search &middot; <kbd>F</kbd> fit &middot; <kbd>Esc</kbd> clear &middot; <kbd>?</kbd> guide
+      <kbd>/</kbd> search &middot; arrows: step &middot; <kbd>F</kbd> fit &middot; <kbd>Esc</kbd> clear &middot; <kbd>?</kbd> guide
     </div>
     <aside id="panel" hidden></aside>
     <dialog id="guide"></dialog>
+    <div id="announce" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

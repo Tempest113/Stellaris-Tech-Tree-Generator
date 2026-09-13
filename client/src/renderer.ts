@@ -61,6 +61,10 @@ const ICON = 52;
 const ICON_X = 12;
 const BADGE_RADIUS = 11;
 
+/** Corner markers: rare, dangerous and a crisis row's area dot, right to left. */
+const MARKER = 9;
+const MARKER_GAP = 5;
+
 /** Corner cut on a trace, in world units. */
 const CHAMFER = 14;
 
@@ -472,23 +476,63 @@ export class Renderer {
         this.drawPerkBadge(node, node.x + ICON_X + ICON - 7, iconY + ICON - 5, scale);
       }
 
-      if (showText) this.drawCardText(node, showIcon);
-
-      // Crisis rows are tinted by crisis, so a card there has to say which
-      // research area it actually belongs to.
-      const row = this.data.raw.rows[node.row];
-      if (row?.group === "crisis" && showIcon) {
-        context.fillStyle = AREA_ACCENT[node.area] ?? INK.muted;
-        context.beginPath();
-        context.arc(node.x + card.w - 12, node.y + 12, 4, 0, Math.PI * 2);
-        context.fill();
-      }
+      const markers = showIcon ? this.drawMarkers(node) : 0;
+      if (showText) this.drawCardText(node, showIcon, markers);
 
       context.globalAlpha = 1;
     }
   }
 
-  private drawCardText(node: TechNode, withIcon: boolean): void {
+  /**
+   * Markers in the card's top-right corner, returning the width they take.
+   *
+   * Rarity and danger are the side bar's colour, and colour alone must not
+   * carry them, so each also gets a shape: a diamond for rare, a warning
+   * triangle for dangerous. Crisis rows are tinted by crisis, so a card there
+   * also has a dot in its research area's colour.
+   */
+  private drawMarkers(node: TechNode): number {
+    const context = this.context;
+    let right = node.x + card.w - 8;
+    const cy = node.y + 12;
+    const row = this.data.raw.rows[node.row];
+    if (row?.group === "crisis") {
+      context.fillStyle = AREA_ACCENT[node.area] ?? INK.muted;
+      context.beginPath();
+      context.arc(right - 4, cy, 4, 0, Math.PI * 2);
+      context.fill();
+      right -= 8 + MARKER_GAP;
+    }
+    if (node.dangerous) {
+      const half = MARKER / 2;
+      context.fillStyle = FLAG.dangerous;
+      context.beginPath();
+      context.moveTo(right - half, cy - half);
+      context.lineTo(right, cy + half);
+      context.lineTo(right - MARKER, cy + half);
+      context.closePath();
+      context.fill();
+      context.fillStyle = INK.card;
+      context.fillRect(right - half - 0.75, cy - 1.5, 1.5, 3);
+      context.fillRect(right - half - 0.75, cy + 2.5, 1.5, 1.5);
+      right -= MARKER + MARKER_GAP;
+    }
+    if (node.rare) {
+      const half = MARKER / 2;
+      context.fillStyle = FLAG.rare;
+      context.beginPath();
+      context.moveTo(right - half, cy - half);
+      context.lineTo(right, cy);
+      context.lineTo(right - half, cy + half);
+      context.lineTo(right - MARKER, cy);
+      context.closePath();
+      context.fill();
+      right -= MARKER + MARKER_GAP;
+    }
+    return node.x + card.w - 8 - right;
+  }
+
+  private drawCardText(node: TechNode, withIcon: boolean, markers = 0): void {
     const context = this.context;
     const textX = node.x + (withIcon ? ICON_X + ICON + 10 : 14);
     const right = node.x + card.w - 10;
@@ -496,7 +540,8 @@ export class Renderer {
     context.textBaseline = "top";
     context.fillStyle = INK.text;
     context.font = `600 14px ${FONT.display}`;
-    wrapText(context, node.name, textX, node.y + 11, right - textX, 17, 2);
+    // The name's first line keeps clear of the corner markers.
+    wrapText(context, node.name, textX, node.y + 11, right - textX, 17, 2, right - textX - markers);
 
     const baseline = node.y + card.h - 21;
     context.font = `600 11px ${FONT.display}`;
@@ -638,18 +683,20 @@ function wrapText(
   maxWidth: number,
   lineHeight: number,
   maxLines: number,
+  firstLineWidth = maxWidth,
 ): void {
   const words = text.split(" ");
   let line = "";
   let lines = 0;
+  const width = () => (lines === 0 ? firstLineWidth : maxWidth);
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
-    if (context.measureText(candidate).width > maxWidth && line) {
+    if (context.measureText(candidate).width > width() && line) {
       if (lines === maxLines - 1) {
-        context.fillText(ellipsise(context, `${line} ${word}`, maxWidth), x, y + lines * lineHeight);
+        context.fillText(ellipsise(context, `${line} ${word}`, width()), x, y + lines * lineHeight);
         return;
       }
-      context.fillText(ellipsise(context, line, maxWidth), x, y + lines * lineHeight);
+      context.fillText(ellipsise(context, line, width()), x, y + lines * lineHeight);
       lines += 1;
       line = word;
     } else {
@@ -657,7 +704,7 @@ function wrapText(
     }
   }
   if (line && lines < maxLines) {
-    context.fillText(ellipsise(context, line, maxWidth), x, y + lines * lineHeight);
+    context.fillText(ellipsise(context, line, width()), x, y + lines * lineHeight);
   }
 }
 

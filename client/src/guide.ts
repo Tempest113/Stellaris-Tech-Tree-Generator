@@ -40,7 +40,8 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
         <h3>Cards</h3>
         <ul class="legend">
           <li>${bar(AREA_ACCENT.physics!)}<span><b>Side bar</b>: the research area, or
-            ${swatch(FLAG.rare)} rare, or ${swatch(FLAG.dangerous)} dangerous.</span></li>
+            ${swatch(FLAG.rare)} rare, or ${swatch(FLAG.dangerous)} dangerous. Rare and dangerous cards
+            also carry ${marker("rare")} and ${marker("dangerous")} in their top corner.</span></li>
           <li>${badge(false)}<span><b>Badge</b>: the ascension perk or crisis path it needs.</span></li>
           <li>${badge(true)}<span><b>Dashed badge</b>: needed by something earlier in its line, not by the card itself.</span></li>
           <li><span class="sample tag">Event</span><span><b>Purple word</b>: how a technology that is never
@@ -72,6 +73,7 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
           <li><span>The arrow beside the details panel's close button</span><span>Fold the panel to its title bar, keeping the technology and its line lit</span></li>
           <li><span>Middle-click, long-press, or <b>Isolate</b> in the details panel</span><span>Show only that technology's line, with empty rows and columns closed up</span></li>
           <li><span>Drag · scroll or pinch</span><span>Pan · zoom</span></li>
+          <li><span>Arrow keys, with the tree focused</span><span><kbd>←</kbd> something it needs, <kbd>→</kbd> something it leads to, <kbd>↑</kbd> <kbd>↓</kbd> the card above or below. Shift and an arrow pans, <kbd>+</kbd> <kbd>−</kbd> zoom, <kbd>Enter</kbd> hides or shows the details, <kbd>I</kbd> isolates</span></li>
           <li><span><kbd>/</kbd> or <kbd>Ctrl</kbd> <kbd>K</kbd></span><span>Search by name, or by key</span></li>
           <li><span><kbd>F</kbd></span><span>Fit the tree on screen</span></li>
           <li><span><kbd>Esc</kbd></span><span>Leave an isolated view, then close the details</span></li>
@@ -134,6 +136,16 @@ function sources(raw: RawDataset): string {
   const names = raw.meta.sources.map((s) => `${s.name}${s.version ? ` ${s.version}` : ""}`);
   const date = raw.meta.generated.slice(0, 10);
   return `${names.map(escapeHtml).join(" and ")}, on ${date}`;
+}
+
+/** The corner marker a rare or dangerous card carries, as drawn on the canvas. */
+function marker(kind: "rare" | "dangerous"): string {
+  const shape =
+    kind === "rare"
+      ? `<path d="M5 0.5 L9.5 5 L5 9.5 L0.5 5 Z" fill="${FLAG.rare}"/>`
+      : `<path d="M5 0.5 L9.5 9.5 L0.5 9.5 Z" fill="${FLAG.dangerous}"/>` +
+        `<rect x="4.25" y="3.5" width="1.5" height="3" fill="${INK.card}"/><rect x="4.25" y="7.2" width="1.5" height="1.5" fill="${INK.card}"/>`;
+  return `<svg class="marker" width="10" height="10" viewBox="0 0 10 10" role="img" aria-label="${kind}">${shape}</svg>`;
 }
 
 function swatch(colour: string): string {
