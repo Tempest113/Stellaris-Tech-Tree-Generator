@@ -179,6 +179,8 @@ export interface TechNode {
 export interface View {
   /** Index into `profiles`, or null for every empire at once. */
   profile: number | null;
+  /** The node indices an isolated lineage keeps, or null for the whole tree. */
+  isolated: Set<number> | null;
   edges: [number, number, number][];
   geometry: Geometry;
 }
@@ -199,6 +201,12 @@ export function mask(hex: string | undefined): bigint {
 
 export function profileBit(profile: number): bigint {
   return 1n << BigInt(profile);
+}
+
+/** Whether the current profile never shows this slot, isolation aside. */
+export function hiddenByProfile(data: Dataset, index: number): boolean {
+  const profile = data.view.profile;
+  return profile !== null && (data.nodes[index]!.hiddenIn & profileBit(profile)) !== 0n;
 }
 
 export function expand(raw: RawDataset): Dataset {
@@ -269,24 +277,27 @@ export function expand(raw: RawDataset): Dataset {
     nodes,
     byKey,
     dependencies,
-    view: { profile: null, edges: [], geometry: undefined as unknown as Geometry },
+    view: { profile: null, isolated: null, edges: [], geometry: undefined as unknown as Geometry },
   };
-  applyProfile(data, null);
+  applyView(data, null, null);
   return data;
 }
 
 /**
- * Show the tree as one profile sees it, or as every empire does.
+ * Show the tree as one profile sees it, or as every empire does, optionally
+ * isolated to one lineage.
  *
  * Hides what the profile never gets, presents each slot under the name the
  * profile knows it by, rewires dependencies between the slots left visible,
- * and closes up the gaps.
+ * and closes up the gaps. An isolated view also drops every column left empty,
+ * so a lineage reads as one compact tree.
  */
-export function applyProfile(data: Dataset, profile: number | null): void {
+export function applyView(data: Dataset, profile: number | null, isolated: Set<number> | null): void {
   const bit = profile === null ? 0n : profileBit(profile);
 
-  for (const node of data.nodes) {
-    node.hidden = profile !== null && (node.hiddenIn & bit) !== 0n;
+  data.nodes.forEach((node, index) => {
+    node.hidden =
+      (profile !== null && (node.hiddenIn & bit) !== 0n) || (isolated !== null && !isolated.has(index));
     const shown =
       profile === null ? undefined : node.presentations.find((p) => (p.mask & bit) !== 0n);
     const presentation = shown ?? node.base;
@@ -297,11 +308,11 @@ export function applyProfile(data: Dataset, profile: number | null): void {
       (profile === null ? undefined : node.badges.find((b) => (b.mask & bit) !== 0n)) ?? node.baseBadge;
     node.perkBadge = badge.perkBadge;
     node.perkInherited = badge.perkInherited;
-  }
+  });
 
   let edges: [number, number, number][];
   if (profile === null) {
-    edges = data.raw.edges;
+    edges = data.raw.edges.filter(([s, t]) => !data.nodes[s]!.hidden && !data.nodes[t]!.hidden);
   } else {
     edges = [];
     const visible = (key: string) =>
@@ -324,5 +335,5 @@ export function applyProfile(data: Dataset, profile: number | null): void {
     data.nodes[target]?.incoming.push(source);
   }
 
-  data.view = { profile, edges, geometry: computeGeometry(data) };
+  data.view = { profile, isolated, edges, geometry: computeGeometry(data, isolated !== null) };
 }

@@ -14,7 +14,7 @@
  * in this empire's tree, rather than silently missing.
  */
 
-import type { Dataset } from "./types";
+import { hiddenByProfile, type Dataset } from "./types";
 
 const MAX_RESULTS = 12;
 /** Rendered size of a result's icon. */
@@ -92,7 +92,9 @@ export function mountSearch(
       const match = score(entry, query);
       if (!match) continue;
       const indices = data.byKey.get(entry.key) ?? [];
-      const index = indices.find((i) => !data.nodes[i]!.hidden) ?? null;
+      // Isolation hides cards too, but picking one leaves the isolated view;
+      // only the profile decides whether a technology is there to find.
+      const index = indices.find((i) => !hiddenByProfile(data, i)) ?? null;
       const shown = index === null ? data.nodes[indices[0]!]! : data.nodes[index]!;
       found.push({
         key: entry.key,
@@ -147,8 +149,8 @@ export function mountSearch(
       meta.className = "meta";
       const row = data.raw.rows[node.row]?.label ?? "";
       const details = [`T${node.tier}`, row];
-      if (result.matched) details.push(`also “${result.matched}”`);
-      if (result.index === null) details.push("not in this empire's tree");
+      if (result.matched) details.push(`Also “${result.matched}”`);
+      if (result.index === null) details.push("Not in This Empire's Tree");
       meta.textContent = details.join(" · ");
       text.append(name, meta);
       item.append(icon, text);

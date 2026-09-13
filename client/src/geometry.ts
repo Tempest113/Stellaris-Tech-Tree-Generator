@@ -19,7 +19,9 @@
  * changes, so a card can still only move right of what it depends on, never
  * left.
  *
- * A row with nothing visible in it is left out entirely.
+ * A row with nothing visible in it is left out entirely. A compact layout -- an
+ * isolated lineage -- leaves out empty columns too, so a handful of cards is not
+ * spread across the width of the whole tree.
  */
 
 import type { Dataset } from "./types";
@@ -91,7 +93,7 @@ export interface Geometry {
 }
 
 /** Position every visible node, and size every row and band around them. */
-export function computeGeometry(data: Dataset): Geometry {
+export function computeGeometry(data: Dataset, compact = false): Geometry {
   const { raw, nodes } = data;
 
   // Visible cards per (row, column) cell, in the pipeline's order.
@@ -107,7 +109,7 @@ export function computeGeometry(data: Dataset): Geometry {
     members.sort((a, b) => nodes[a]!.order - nodes[b]!.order);
   }
 
-  const subcolumns = new Array<number>(raw.columns).fill(1);
+  const subcolumns = new Array<number>(raw.columns).fill(compact ? 0 : 1);
   const stacks = new Array<number>(raw.rows.length).fill(0);
   const counts = new Array<number>(raw.rows.length).fill(0);
   for (const members of cells.values()) {
@@ -121,8 +123,12 @@ export function computeGeometry(data: Dataset): Geometry {
   const columnWidths: number[] = [];
   let cursor = MARGIN_X;
   for (let column = 0; column < raw.columns; column++) {
-    const width = subcolumns[column]! * SUBCOLUMN_PITCH - SUBCOLUMN_GAP;
     columnX.push(cursor);
+    if (subcolumns[column] === 0) {
+      columnWidths.push(0);
+      continue;
+    }
+    const width = subcolumns[column]! * SUBCOLUMN_PITCH - SUBCOLUMN_GAP;
     columnWidths.push(width);
     cursor += width + COLUMN_GAP;
   }
@@ -156,10 +162,18 @@ export function computeGeometry(data: Dataset): Geometry {
     });
   }
 
-  const span = (start: number, end: number): Span => ({
-    x: columnX[start]! - COLUMN_GAP / 2,
-    w: columnX[end]! + columnWidths[end]! - columnX[start]! + COLUMN_GAP,
-  });
+  // A band over columns that are all collapsed has no width at all.
+  const span = (start: number, end: number): Span => {
+    let first = start;
+    let last = end;
+    while (first <= end && columnWidths[first] === 0) first++;
+    while (last >= first && columnWidths[last] === 0) last--;
+    if (first > last) return { x: columnX[start]!, w: 0 };
+    return {
+      x: columnX[first]! - COLUMN_GAP / 2,
+      w: columnX[last]! + columnWidths[last]! - columnX[first]! + COLUMN_GAP,
+    };
+  };
 
   return {
     rows,

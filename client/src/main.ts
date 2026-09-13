@@ -13,7 +13,7 @@ import { mountProfilePicker } from "./profile";
 import { mountSearch } from "./search";
 import { Renderer, emptySelection } from "./renderer";
 import {
-  applyProfile,
+  applyView,
   expand,
   mask,
   profileBit,
@@ -37,22 +37,19 @@ async function main(): Promise<void> {
   const panel = document.getElementById("panel") as HTMLElement;
   const profileBar = document.getElementById("profile") as HTMLElement;
   const toolbar = document.getElementById("toolbar") as HTMLElement;
+  const isolationBar = document.getElementById("isolation") as HTMLElement;
 
   status.textContent = "Loading dataset…";
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
   const data = expand(raw);
 
   const picker = mountProfilePicker(profileBar, raw, (profile) => {
-    applyProfile(data, profile);
-    renderer.refresh();
-    selection.isolated = null;
+    applyView(data, profile, null);
+    refreshView();
     selection.pinned = null;
     select(null, true);
-    camera.clamp();
-    showStatus();
-    schedule();
   });
-  if (picker.current !== null) applyProfile(data, picker.current);
+  if (picker.current !== null) applyView(data, picker.current, null);
 
   const search = mountSearch(
     document.getElementById("search") as HTMLElement,
@@ -112,6 +109,15 @@ async function main(): Promise<void> {
   }
   showStatus();
 
+  /** Everything that follows a change of view. */
+  function refreshView(): void {
+    renderer.refresh();
+    camera.clamp();
+    showIsolation();
+    showStatus();
+    schedule();
+  }
+
   // -- selection ---------------------------------------------------------
 
   function relatives(index: number): { ancestors: Set<number>; descendants: Set<number> } {
@@ -152,30 +158,82 @@ async function main(): Promise<void> {
    * the panel leaves, so the panel never covers the card it describes.
    */
   function reveal(index: number): void {
+    if (data.nodes[index]!.hidden && data.view.isolated !== null) {
+      applyView(data, data.view.profile, null);
+      refreshView();
+    }
     const node = data.nodes[index]!;
-    selection.isolated = null;
     selection.pinned = null;
     const scale = Math.max(camera.scale, 0.8);
-    const panelWidth = window.innerWidth > 700 ? Math.min(420, window.innerWidth) : 0;
-    const offset = panelWidth / 2 / scale;
+    const offset = panelInset() / 2 / scale;
     camera.centreOn(node.x + CARD_WIDTH / 2 + offset, node.y + CARD_HEIGHT / 2, scale);
     select(index, true);
   }
 
+  /**
+   * Show only one technology's lineage -- everything it needs and everything
+   * that needs it -- as a compact tree of its own: empty rows and columns close
+   * up, and the view fits to it. Selecting inside it stays inside it, so no
+   * trace can run to a card that is not drawn.
+   *
+   * The lineage is always read from the whole tree, so isolating another card
+   * from inside an isolated view shows that card's full lineage.
+   */
   function isolate(index: number | null): void {
+    const profile = data.view.profile;
     if (index === null) {
-      selection.isolated = null;
-    } else {
-      const { ancestors, descendants } = relatives(index);
-      const keep = new Set<number>([index, ...ancestors, ...descendants]);
-      for (const sibling of siblings(index)) keep.add(sibling);
-      selection.isolated = keep;
-      selection.pinned = index;
-      selection.ancestors = ancestors;
-      selection.descendants = descendants;
-      showPanel(index);
+      exitIsolation();
+      return;
     }
-    schedule();
+    const root = data.nodes[index]!;
+    if (data.view.isolated !== null) applyView(data, profile, null);
+    const target = (data.byKey.get(root.key) ?? [index]).find((i) => !data.nodes[i]!.hidden) ?? index;
+    const { ancestors, descendants } = relatives(target);
+    const keep = new Set<number>([target, ...ancestors, ...descendants, ...siblings(target)]);
+    applyView(data, profile, keep);
+    isolatedRoot = target;
+    refreshView();
+    // The panel opens with the selection; fit into the space it leaves.
+    camera.rightInset = panelInset();
+    camera.fit();
+    selection.pinned = null;
+    select(target, true);
+  }
+
+  let isolatedRoot: number | null = null;
+
+  /** Back to the whole tree, keeping the isolated card in view. */
+  function exitIsolation(): void {
+    if (data.view.isolated === null) return;
+    const root = isolatedRoot;
+    applyView(data, data.view.profile, null);
+    isolatedRoot = null;
+    refreshView();
+    if (root !== null) {
+      const node = data.nodes[root]!;
+      camera.centreOn(node.x + CARD_WIDTH / 2, node.y + CARD_HEIGHT / 2, Math.max(camera.scale, 0.3));
+    }
+    selection.pinned = null;
+    select(null, true);
+  }
+
+  function showIsolation(): void {
+    const root = isolatedRoot;
+    if (data.view.isolated === null || root === null) {
+      isolationBar.hidden = true;
+      isolationBar.innerHTML = "";
+      return;
+    }
+    isolationBar.hidden = false;
+    isolationBar.innerHTML = "";
+    const label = document.createElement("span");
+    label.textContent = `Isolated: ${data.nodes[root]!.name}`;
+    const exit = document.createElement("button");
+    exit.type = "button";
+    exit.textContent = "Show Whole Tree";
+    exit.title = "Esc";
+    exit.addEventListener("click", () => exitIsolation());
+    isolationBar.append(label, exit);
   }
 
   // -- detail panel ------------------------------------------------------
@@ -256,16 +314,21 @@ async function main(): Promise<void> {
       <p class="key">${escapeHtml(node.key)}</p>
     `;
     panel.hidden = false;
+    camera.rightInset = panelInset();
     panel.querySelector(".close")?.addEventListener("click", () => {
-      hidePanel();
       selection.pinned = null;
-      selection.isolated = null;
-      schedule();
+      select(null, true);
     });
   }
 
   function hidePanel(): void {
     panel.hidden = true;
+    camera.rightInset = 0;
+  }
+
+  /** Width the open panel covers on the right; a phone's panel is a bottom sheet. */
+  function panelInset(): number {
+    return window.innerWidth > 700 ? Math.min(420, window.innerWidth) : 0;
   }
 
   /**
@@ -547,9 +610,12 @@ async function main(): Promise<void> {
       event.preventDefault();
       search.focus();
     } else if (event.key === "Escape") {
-      selection.isolated = null;
-      selection.pinned = null;
-      select(null, true);
+      if (data.view.isolated !== null) {
+        exitIsolation();
+      } else {
+        selection.pinned = null;
+        select(null, true);
+      }
     } else if (event.key === "f") {
       camera.fit();
       schedule();
@@ -576,6 +642,9 @@ async function main(): Promise<void> {
     data,
     selection,
     redraw: () => renderer.draw(selection),
+    isolate,
+    select,
+    reveal,
   };
 
   schedule();

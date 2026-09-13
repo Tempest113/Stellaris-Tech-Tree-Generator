@@ -18,6 +18,9 @@ export class Camera {
 
   minScale = 0.04;
   maxScale = 2;
+  /** Screen pixels at the right covered by the detail panel, kept clear by
+   *  `fit` and by centring. */
+  rightInset = 0;
 
   constructor(
     /** The size of what is shown, which changes with the view. */
@@ -36,10 +39,11 @@ export class Camera {
   fit(): void {
     const content = this.size();
     const height = this.viewport.height - this.topInset;
-    const sx = this.viewport.width / content.width;
+    const width = this.viewport.width - this.rightInset;
+    const sx = width / content.width;
     const sy = height / content.height;
     this.scale = Math.max(this.minScale, Math.min(sx, sy) * 0.98);
-    this.x = (this.viewport.width - content.width * this.scale) / 2;
+    this.x = (width - content.width * this.scale) / 2;
     this.y = this.topInset + (height - content.height * this.scale) / 2;
   }
 
@@ -98,8 +102,10 @@ export class Camera {
     this.x = Math.min(slackX, Math.max(this.viewport.width - scaledWidth - slackX, this.x));
     this.y = Math.min(slackY, Math.max(this.viewport.height - scaledHeight - slackY, this.y));
 
-    // When the content is smaller than the viewport, centre instead of clamping.
-    if (scaledWidth < this.viewport.width) this.x = (this.viewport.width - scaledWidth) / 2;
+    // When the content is smaller than the viewport, centre instead of clamping:
+    // in the part of it the panel leaves uncovered.
+    const width = this.viewport.width - this.rightInset;
+    if (scaledWidth < width) this.x = (width - scaledWidth) / 2;
     if (scaledHeight < this.viewport.height) this.y = (this.viewport.height - scaledHeight) / 2;
   }
 }

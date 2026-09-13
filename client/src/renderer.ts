@@ -81,8 +81,6 @@ export interface Selection {
   ancestors: Set<number>;
   /** Node indices reachable forwards from the active node. */
   descendants: Set<number>;
-  /** When set, only these nodes are drawn: the isolate view. */
-  isolated: Set<number> | null;
 }
 
 export function emptySelection(): Selection {
@@ -91,7 +89,6 @@ export function emptySelection(): Selection {
     pinned: null,
     ancestors: new Set(),
     descendants: new Set(),
-    isolated: null,
   };
 }
 
@@ -178,7 +175,7 @@ export class Renderer {
     const context = this.context;
     const { height, bands, repeatable } = this.data.view.geometry;
     bands.forEach((band, index) => {
-      if (band.x + band.w < view.x0 || band.x > view.x1) return;
+      if (band.w <= 0 || band.x + band.w < view.x0 || band.x > view.x1) return;
       context.fillStyle = index % 2 ? "rgba(255,255,255,0.038)" : "rgba(255,255,255,0.014)";
       context.fillRect(band.x, 0, band.w, height);
     });
@@ -288,6 +285,7 @@ export class Renderer {
     context.font = `600 11px ${FONT.display}`;
     context.textBaseline = "middle";
     entries.forEach((entry, index) => {
+      if (entry.w <= 0) return;
       const left = offset + entry.x * scale;
       const right = left + entry.w * scale;
       if (right < 0 || left > viewWidth) return;
@@ -323,9 +321,7 @@ export class Renderer {
     const context = this.context;
     const active = selection.pinned ?? selection.hovered;
 
-    const resting = selection.isolated
-      ? this.buildPaths((s, t) => selection.isolated!.has(s) && selection.isolated!.has(t))
-      : this.idlePaths;
+    const resting = this.idlePaths;
     context.lineWidth = EDGE.width / scale;
     context.strokeStyle = EDGE.idle;
     context.globalAlpha = active === null ? EDGE.idleAlpha : EDGE.mutedAlpha;
@@ -436,7 +432,6 @@ export class Renderer {
     for (let index = 0; index < this.data.nodes.length; index++) {
       const node = this.data.nodes[index]!;
       if (node.hidden) continue;
-      if (selection.isolated && !selection.isolated.has(index)) continue;
       if (node.x + card.w < view.x0 || node.x > view.x1) continue;
       if (node.y + card.h < view.y0 || node.y > view.y1) continue;
 
