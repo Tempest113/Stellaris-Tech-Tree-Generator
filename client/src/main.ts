@@ -32,6 +32,8 @@ const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 12;
 /** Share of a phone screen the detail sheet covers; `#panel` in index.html agrees. */
 const PHONE_SHEET = 0.7;
+/** Height of the folded panel on a phone, before it has been measured. */
+const FOLDED_SHEET_PX = 72;
 /** Rendered size of a perk icon in the detail panel. */
 const PERK_ICON_PX = 20;
 /**
@@ -182,16 +184,44 @@ async function main(): Promise<void> {
       applyView(data, data.view.profile, null);
       refreshView();
     }
-    const node = data.nodes[index]!;
     selection.pinned = null;
-    const scale = Math.max(camera.scale, 0.8);
-    // Centre in the space between the toolbar and the panel, wherever the panel sits.
-    const insets = panelInsets();
-    const top = insets.bottom > 0 ? toolbar.getBoundingClientRect().bottom : 0;
-    const offsetX = insets.right / 2 / scale;
-    const offsetY = (window.innerHeight / 2 - (top + window.innerHeight - insets.bottom) / 2) / scale;
-    camera.centreOn(node.x + CARD_WIDTH / 2 + offsetX, node.y + CARD_HEIGHT / 2 + offsetY, scale);
+    centreCard(index, Math.max(camera.scale, 0.8));
     select(index, true);
+  }
+
+  /** The screen area neither the toolbar nor the panel covers. */
+  function openArea(): { left: number; top: number; right: number; bottom: number } {
+    const insets = panelInsets();
+    return {
+      left: 0,
+      top: toolbar.getBoundingClientRect().bottom,
+      right: window.innerWidth - insets.right,
+      bottom: window.innerHeight - insets.bottom,
+    };
+  }
+
+  /** Centre a card in the open area, at `scale`. */
+  function centreCard(index: number, scale: number): void {
+    const node = data.nodes[index]!;
+    const area = openArea();
+    const offsetX = (window.innerWidth / 2 - (area.left + area.right) / 2) / scale;
+    const offsetY = (window.innerHeight / 2 - (area.top + area.bottom) / 2) / scale;
+    camera.centreOn(node.x + CARD_WIDTH / 2 + offsetX, node.y + CARD_HEIGHT / 2 + offsetY, scale);
+  }
+
+  /** Move the view only as far as it takes to show a card the toolbar or panel now covers. */
+  function keepCardInView(index: number): void {
+    const node = data.nodes[index]!;
+    const { scale, x, y } = camera;
+    const left = x + node.x * scale;
+    const top = y + node.y * scale;
+    const area = openArea();
+    const inside =
+      left >= area.left &&
+      top >= area.top &&
+      left + CARD_WIDTH * scale <= area.right &&
+      top + CARD_HEIGHT * scale <= area.bottom;
+    if (!inside) centreCard(index, scale);
   }
 
   /**
@@ -219,18 +249,22 @@ async function main(): Promise<void> {
     refreshView();
     selection.pinned = null;
     // On a phone the details sheet would cover most of the lineage just
-    // fitted, so the lineage gets the screen and is lit, and a tap opens the
-    // details. Elsewhere the panel opens beside it.
-    const sheet = panelInsets().bottom > 0;
-    hidePanel();
-    if (!sheet) setPanelInsets(panelInsets());
+    // fitted, so it opens folded. Elsewhere the panel opens beside it.
+    if (window.innerWidth <= 700) panelFolded = true;
+    setPanelInsets(panelInsets());
     camera.fit();
     // Its own history entry, so Back returns to the whole tree.
     syncLink(true);
-    select(target, !sheet);
+    select(target, true);
   }
 
   let isolatedRoot: number | null = null;
+  /**
+   * The details panel folded to its title bar, so the pinned technology's line
+   * stays lit and in view. It stays folded from one selection to the next
+   * until opened again: someone tapping through a line wants the line.
+   */
+  let panelFolded = false;
 
   /** Back to the whole tree, keeping the isolated card in view. */
   function exitIsolation(): void {
@@ -386,8 +420,17 @@ async function main(): Promise<void> {
       data.view.isolated !== null && isolatedRoot !== null && data.nodes[isolatedRoot]!.key === node.key;
 
     panel.innerHTML = `
-      <button class="close" aria-label="Close">&times;</button>
-      <h2>${escapeHtml(node.name)}</h2>
+      <div class="head">
+        <h2>${escapeHtml(node.name)}</h2>
+        <button type="button" class="collapse" aria-controls="panel-body">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button type="button" class="close" aria-label="Close details" title="Close (Esc)">&times;</button>
+      </div>
+      <div class="body" id="panel-body">
       <p class="meta">
         Tier ${node.tier} · ${escapeHtml(node.area)} · ${escapeHtml(rowLabel)}
         ${node.cost ? ` · ${node.cost.toLocaleString()} research` : ""}
@@ -415,12 +458,28 @@ async function main(): Promise<void> {
       <h3>Unlocks ${dependents ? "" : "<span class='none'>nothing</span>"}</h3>
       <ul>${dependents}</ul>
       <p class="key">${escapeHtml(node.key)}</p>
+      </div>
     `;
     panel.hidden = false;
-    setPanelInsets(panelInsets());
-    panel.querySelector(".close")?.addEventListener("click", () => {
+    foldPanel(panelFolded);
+    panel.querySelector(".close")?.addEventListener("click", (event) => {
+      event.stopPropagation();
       selection.pinned = null;
       select(null, true);
+    });
+    // Folding or opening changes what the panel covers; the card it describes stays in sight.
+    const toggleFold = (folded: boolean) => {
+      foldPanel(folded);
+      keepCardInView(index);
+      schedule();
+    };
+    panel.querySelector(".collapse")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleFold(!panelFolded);
+    });
+    // Folded, the whole title bar opens it.
+    panel.querySelector(".head")?.addEventListener("click", () => {
+      if (panelFolded) toggleFold(false);
     });
     panel.querySelector('[data-action="isolate"]')?.addEventListener("click", () => {
       if (isolatedHere) exitIsolation();
@@ -456,13 +515,34 @@ async function main(): Promise<void> {
     setPanelInsets({ right: 0, bottom: 0 });
   }
 
+  /** Fold the panel to its title bar, or open it out, leaving the selection as it is. */
+  function foldPanel(folded: boolean): void {
+    panelFolded = folded;
+    panel.classList.toggle("collapsed", folded);
+    const button = panel.querySelector(".collapse");
+    button?.setAttribute("aria-expanded", String(!folded));
+    button?.setAttribute("aria-label", folded ? "Show details" : "Hide details");
+    button?.setAttribute("title", folded ? "Show details" : "Hide details");
+    setPanelInsets(panelInsets());
+    camera.clamp();
+    schedule();
+  }
+
   /**
-   * What the open panel covers: the right edge on a wide screen, the bottom on a
+   * What the panel covers: the right edge on a wide screen, the bottom on a
    * phone, where it is a sheet. Measured as if open, since isolating fits the
-   * view before the panel appears.
+   * view before the panel appears. Folded beside the tree it covers only a
+   * corner, which nothing needs to keep clear of; folded on a phone, a bar.
    */
   function panelInsets(): { right: number; bottom: number } {
-    if (window.innerWidth > 700) return { right: Math.min(420, window.innerWidth), bottom: 0 };
+    const phone = window.innerWidth <= 700;
+    if (panelFolded) {
+      if (!phone) return { right: 0, bottom: 0 };
+      const shown = !panel.hidden && panel.classList.contains("collapsed");
+      const measured = shown ? Math.round(panel.getBoundingClientRect().height) : 0;
+      return { right: 0, bottom: measured || FOLDED_SHEET_PX };
+    }
+    if (!phone) return { right: Math.min(420, window.innerWidth), bottom: 0 };
     return { right: 0, bottom: Math.round(window.innerHeight * PHONE_SHEET) };
   }
 

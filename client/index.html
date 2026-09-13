@@ -109,14 +109,22 @@
         color: var(--ink);
       }
       #isolation[hidden] { display: none; }
+      #isolation span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       #isolation button {
-        height: 28px;
-        padding: 0 10px;
+        flex: none;
+        min-height: 28px;
+        padding: 4px 14px;
         background: var(--panel);
         color: var(--ink);
         border: 1px solid var(--line);
         border-radius: 4px;
         font: inherit;
+        white-space: nowrap;
         cursor: pointer;
       }
       #isolation button:hover { border-color: var(--rare); }
@@ -170,14 +178,15 @@
       #search .results .meta { color: var(--dim); font-weight: 500; font-size: 11px; }
       #profile select,
       #profile .toggle {
-        height: 28px;
-        padding: 0 10px;
+        min-height: 28px;
+        padding: 4px 14px;
         background: var(--panel);
         color: var(--ink);
         border: 1px solid var(--line);
         border-radius: 4px;
         font: inherit;
         letter-spacing: 0.04em;
+        white-space: nowrap;
         cursor: pointer;
       }
       #profile .toggle { color: var(--dim); }
@@ -217,7 +226,22 @@
         border-left: 1px solid var(--line);
       }
       #panel[hidden] { display: none; }
-      #panel h2 { margin: 0 40px 4px 0; font: 600 20px/1.25 var(--display); }
+      /* Stays in view while the panel scrolls, so Hide and Close are always in reach. */
+      #panel .head {
+        position: sticky;
+        top: -20px;
+        z-index: 1;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: -20px -22px 0;
+        padding: 16px 16px 6px 22px;
+        background: var(--panel);
+      }
+      #panel h2 { flex: 1; min-width: 0; margin: 4px 0; font: 600 20px/1.25 var(--display); }
+      #panel.collapsed .head { cursor: pointer; margin-bottom: -20px; padding-bottom: 16px; }
+      #panel.collapsed h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #panel.collapsed .body { display: none; }
       #panel h3 {
         margin: 20px 0 6px;
         font: 600 12px var(--display);
@@ -289,12 +313,14 @@
         color: var(--dim);
         font-size: 12px;
       }
-      #panel .close {
-        position: absolute;
-        top: 14px;
-        right: 16px;
+      #panel .close,
+      #panel .collapse {
+        flex: none;
+        display: grid;
+        place-items: center;
         width: 32px;
         height: 32px;
+        padding: 0;
         font-size: 22px;
         line-height: 1;
         background: transparent;
@@ -303,17 +329,24 @@
         color: var(--dim);
         cursor: pointer;
       }
-      #panel .close:hover { color: var(--ink); }
+      #panel .collapse svg { transition: transform 120ms ease-out; }
+      /* Beside the tree the panel folds up; as a phone's sheet it folds down. */
+      #panel .collapse svg { transform: rotate(180deg); }
+      #panel.collapsed .collapse svg { transform: none; }
+      #panel .close:hover,
+      #panel .collapse:hover { color: var(--ink); }
+      #panel.collapsed { height: auto; width: min(420px, 100vw); padding-bottom: 20px; }
       #panel .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
       #panel .actions button {
         min-height: 32px;
-        padding: 0 12px;
+        padding: 4px 16px;
         background: transparent;
         color: var(--ink);
         border: 1px solid var(--line);
         border-radius: 6px;
         font: 600 12px var(--display);
         letter-spacing: 0.04em;
+        white-space: nowrap;
         cursor: pointer;
       }
       #panel .actions button:hover { border-color: var(--rare); }
@@ -414,8 +447,17 @@
         #guide ul.keys li { grid-template-columns: 1fr; gap: 0; }
       }
 
+      /* Fingers need more room than a pointer. */
+      @media (pointer: coarse) {
+        #isolation button, #profile select, #profile .toggle { min-height: 36px; }
+        #panel .actions button { min-height: 40px; }
+        #panel .close, #panel .collapse { width: 40px; height: 40px; }
+      }
       @media (max-width: 700px) {
         #panel { width: 100vw; top: auto; bottom: 0; height: 70vh; border-left: 0; border-top: 1px solid var(--line); }
+        #panel.collapsed { width: 100vw; height: auto; }
+        #panel .collapse svg { transform: none; }
+        #panel.collapsed .collapse svg { transform: rotate(180deg); }
         #help { display: none; }
       }
     </style>

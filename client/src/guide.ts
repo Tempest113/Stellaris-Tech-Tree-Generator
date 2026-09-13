@@ -68,6 +68,7 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
         <ul class="keys">
           <li><span>Hover</span><span>Light up a technology's line</span></li>
           <li><span>Click or tap</span><span>Pin it, and open the details panel</span></li>
+          <li><span>The arrow beside the details panel's close button</span><span>Fold the panel to its title bar, keeping the technology and its line lit</span></li>
           <li><span>Middle-click, long-press, or <b>Isolate</b> in the details panel</span><span>Show only that technology's line, with empty rows and columns closed up</span></li>
           <li><span>Drag · scroll or pinch</span><span>Pan · zoom</span></li>
           <li><span><kbd>/</kbd> or <kbd>Ctrl</kbd> <kbd>K</kbd></span><span>Search by name, or by key</span></li>
