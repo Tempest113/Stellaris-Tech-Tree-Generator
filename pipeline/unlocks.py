@@ -29,7 +29,7 @@ import enum
 import fnmatch
 import re
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .clausewitz import Block, Scalar, parse_file
@@ -125,6 +125,10 @@ class Route:
     #: For a tagged route, the position of the rule that tagged it. Rules are
     #: tried in file order, so an earlier rule is a stronger statement.
     rank: int = 0
+    #: Every chain that reads as this route, ``chain`` among them. Any one of
+    #: them will do, so an empire is kept from the route only when every chain
+    #: is closed to it.
+    chains: tuple[tuple[Container, ...], ...] = ()
 
 
 @dataclass
@@ -148,6 +152,16 @@ class Definition:
     #: AI empires "fake" Galactic Wonders this way (``giga_ai_savings.200``),
     #: which is no route for a player.
     ai_only: bool = False
+    #: For a country event: its trigger. A route through the event is open to
+    #: an empire only where the trigger can hold.
+    trigger: Block | None = None
+    #: The conditions an effect passes on its way to a grant: the ``limit`` of
+    #: every enclosing ``if``, the ``trigger`` and ``allow`` of an enclosing
+    #: ``option``. One tuple per place the technology is granted, any of which
+    #: will do. Read only where the scope is known to be the empire's own.
+    grant_guards: dict[str, list[tuple[Block, ...]]] = field(default_factory=dict)
+    #: The same, for each call.
+    call_guards: dict[Container, list[tuple[Block, ...]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -158,6 +172,8 @@ class UnlockIndex:
     #: technology no effect grants but a component requires is usually learned
     #: from the debris of ships that carry it -- space monster weapons, mostly.
     component_prerequisites: set[str] = field(default_factory=set)
+    #: Grants whose caller chains ran past :data:`MAX_ROUTES`.
+    truncated: set[Container] = field(default_factory=set)
     _callers: dict[Container, set[Container]] | None = None
     _granted_by: dict[str, list[Container]] | None = None
     _flag_setters: dict[str, list[Container]] | None = None
@@ -202,7 +218,12 @@ class UnlockIndex:
         return self.chains_from(self.granted_by.get(technology, ()))
 
     def chains_from(self, starts) -> list[tuple[Container, ...]]:
-        """Every caller chain from each of ``starts`` back to a root."""
+        """Every caller chain from each of ``starts`` back to a root.
+
+        A start with more chains than :data:`MAX_ROUTES` is recorded in
+        :attr:`truncated`: some of its ways in were never looked at, so none of
+        them can be ruled out.
+        """
         found: list[tuple[Container, ...]] = []
         for start in starts:
             queue = deque([(start,)])
@@ -217,6 +238,8 @@ class UnlockIndex:
                     continue
                 for caller in fresh:
                     queue.append(chain + (caller,))
+            if queue:
+                self.truncated.add(start)
         return found
 
     def summary(self) -> str:
@@ -302,11 +325,31 @@ def _is_foreign(key: str) -> bool:
     return key in _FOREIGN_KEYS or bool(_FOREIGN_SCOPE.match(key.lower()))
 
 
+#: Effect blocks that keep the scope they are in. Anything else -- ``owner``,
+#: ``capital_scope``, ``random_owned_planet`` -- moves to another scope, where
+#: a condition no longer asks about the empire, so conditions inside one are
+#: not read.
+_SAME_SCOPE = frozenset(
+    {
+        "immediate", "after", "option", "if", "else_if", "else", "while", "hidden_effect",
+        "random_list", "random", "on_enabled",
+    }
+)
+#: Containers whose effects run in the empire's own scope. Other events run in
+#: a planet's, a fleet's or their caller's, where ``is_gestalt`` would ask
+#: about the wrong thing.
+_EMPIRE_SCOPED = frozenset({"country_event", "ascension_perks", "traditions"})
+#: Blocks whose ``limit`` must hold for what they contain to run.
+_LIMITED = frozenset({"if", "else_if", "while"})
+
+
 def _scan(
     node: Block,
     definition: Definition,
     effect_names: set[str],
     event_ids: frozenset[str] | set[str] = frozenset(),
+    guards: tuple[Block, ...] = (),
+    scoped: bool = False,
 ) -> None:
     """Record what ``node`` grants, sets and fires.
 
@@ -316,14 +359,25 @@ def _scan(
     stage's ``event = giga_blokkat.3321``, a special project's
     ``EVENT_ID = grand_archive.10030`` passed to an inline script. Matching on
     the id itself catches all of them without enumerating the forms.
+
+    ``guards`` are the conditions in force so far, and ``scoped`` whether
+    ``node`` is still in the empire's own scope, where more can be added. Only
+    conditions are ever left out, never grants or calls, so a condition missed
+    only leaves a route open. An ``else`` adds nothing, though it holds only
+    where the ``limit`` before it does not.
     """
+
+    def call(callee: Container) -> None:
+        definition.calls.append(callee)
+        definition.call_guards.setdefault(callee, []).append(guards)
+
     for item in node.items:
         if isinstance(item, Block):
-            _scan(item, definition, effect_names, event_ids)
+            _scan(item, definition, effect_names, event_ids, guards, scoped)
             continue
         if isinstance(item, Scalar):
             if item.value in event_ids:
-                definition.calls.append(("event", item.value))
+                call(("event", item.value))
             continue
         key = getattr(item, "key", None)
         if key is None:
@@ -340,31 +394,32 @@ def _scan(
                 technology = tech.value if isinstance(tech, Scalar) else None
             if technology:
                 definition.grants.append(technology)
+                definition.grant_guards.setdefault(technology, []).append(guards)
             continue
         if key in EVENT_KINDS and isinstance(value, Block):
             event_id = value.get_first("id")
             if isinstance(event_id, Scalar):
-                definition.calls.append(("event", event_id.value))
+                call(("event", event_id.value))
             continue
         if key == "enable_special_project" and isinstance(value, Block):
             name = value.get_first("name")
             if isinstance(name, Scalar):
-                definition.calls.append(("special_project", name.value))
+                call(("special_project", name.value))
             continue
         if key == "inline_script":
             script, params = _inline_call(value)
             if script:
                 callee = ("inline_scripts", script)
-                definition.calls.append(callee)
+                call(callee)
                 if params:
                     definition.param_calls.append((callee, params))
                 for param in params.values():
                     if param in event_ids:
-                        definition.calls.append(("event", param))
+                        call(("event", param))
             continue
         if key in effect_names:
             callee = ("scripted_effects", key)
-            definition.calls.append(callee)
+            call(callee)
             if isinstance(value, Block):
                 params = {
                     p.key: p.value.value for p in value.pairs() if isinstance(p.value, Scalar)
@@ -373,14 +428,38 @@ def _scan(
                     definition.param_calls.append((callee, params))
                 for param in params.values():
                     if param in event_ids:
-                        definition.calls.append(("event", param))
+                        call(("event", param))
                 continue
         if isinstance(value, Scalar):
             if value.value in event_ids:
-                definition.calls.append(("event", value.value))
+                call(("event", value.value))
             continue
         if isinstance(value, Block) and not _is_foreign(key):
-            _scan(value, definition, effect_names, event_ids)
+            _scan(value, definition, effect_names, event_ids, *_inner_guards(key, value, guards, scoped))
+
+
+def _inner_guards(
+    key: str, value: Block, guards: tuple[Block, ...], scoped: bool
+) -> tuple[tuple[Block, ...], bool]:
+    """The conditions in force inside ``key = value``, and whether more can be added there."""
+    if not scoped:
+        return guards, False
+    lowered = key.lower()
+    if lowered not in _SAME_SCOPE and not re.fullmatch(r"-?\d+(\.\d+)?", key):
+        # Another scope: what was in force still is, but a condition in there
+        # asks about something other than the empire.
+        return guards, False
+    added: list[Block] = []
+    if lowered in _LIMITED:
+        limit = value.get_first("limit")
+        if isinstance(limit, Block):
+            added.append(limit)
+    elif lowered == "option":
+        for name in ("trigger", "allow"):
+            condition = value.get_first(name)
+            if isinstance(condition, Block):
+                added.append(condition)
+    return guards + tuple(added), True
 
 
 def _inline_call(value) -> tuple[str | None, dict[str, str]]:
@@ -432,6 +511,10 @@ def _resolve_parameterised(index: UnlockIndex, config: UnlockConfig | None = Non
             for technology in technologies:
                 if technology not in definition.grants:
                     definition.grants.append(technology)
+                # Granted wherever the call is made, under the call's conditions.
+                definition.grant_guards.setdefault(technology, []).extend(
+                    definition.call_guards.get(callee, [()])
+                )
 
 
 def _trigger_technologies(event: Block) -> tuple[str, ...]:
@@ -559,11 +642,14 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
             event_id = pair.value.get_first("id")
             if not isinstance(event_id, Scalar):
                 continue
+            scoped = pair.key in _EMPIRE_SCOPED
+            trigger = pair.value.get_first("trigger")
             definition = Definition(
                 trigger_technologies=_trigger_technologies(pair.value),
                 ai_only=_ai_only(pair.value),
+                trigger=trigger if scoped and isinstance(trigger, Block) else None,
             )
-            _scan(pair.value, definition, effect_names, event_ids)
+            _scan(pair.value, definition, effect_names, event_ids, scoped=scoped)
             index.definitions[("event", event_id.value)] = definition
 
     for resolved in common:
@@ -634,7 +720,7 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
             else:
                 kind_key = kind
             definition = Definition()
-            _scan(pair.value, definition, effect_names, event_ids)
+            _scan(pair.value, definition, effect_names, event_ids, scoped=kind in _EMPIRE_SCOPED)
             if kind == "on_actions":
                 for list_key in ("events", "random_events"):
                     listed = pair.value.get_first(list_key)
@@ -652,6 +738,8 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
                 merged = index.definitions[(kind_key, key)]
                 merged.grants.extend(definition.grants)
                 merged.calls.extend(c for c in definition.calls if c not in merged.calls)
+                for callee, guards in definition.call_guards.items():
+                    merged.call_guards.setdefault(callee, []).extend(guards)
                 continue
             index.definitions[(kind_key, key)] = definition
     _resolve_parameterised(index, config)
@@ -692,7 +780,8 @@ def _routes(chains, index: UnlockIndex, config: UnlockConfig) -> tuple[Route, ..
         if route is not None:
             kept = found.get((route.kind, route.key))
             if kept is None or route.rank < kept.rank:
-                found[(route.kind, route.key)] = route
+                kept = route if kept is None else replace(route, chains=kept.chains)
+            found[(route.kind, route.key)] = replace(kept, chains=kept.chains + (chain,))
     order = list(RouteKind)
     return tuple(sorted(found.values(), key=lambda r: (order.index(r.kind), r.key or "")))
 

@@ -57,9 +57,12 @@ load, check that the terminal is still alive before looking anywhere else.
 `client/dist`.
 
 Controls: hover highlights a technology's ancestry and descendants, click pins
-it and opens the detail panel, middle-click isolates it into a mini-tree,
-<kbd>F</kbd> fits the tree, <kbd>Esc</kbd> clears. Touch equivalents: tap to
-select, long-press to isolate.
+it and opens the detail panel, middle-click (or Isolate in the panel) isolates
+it into a mini-tree, <kbd>/</kbd> searches, <kbd>F</kbd> fits the tree,
+<kbd>Esc</kbd> clears, <kbd>?</kbd> opens the guide. Touch equivalents: tap to
+select, long-press to isolate, pinch to zoom. The address bar carries the
+empire, pinned technology and isolated lineage, so a copied address reopens the
+same view.
 
 ## Mod sources
 

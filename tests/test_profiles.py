@@ -18,10 +18,11 @@ from pipeline.profiles import (
     Evaluator,
     Profile,
     compute_views,
+    route_truth,
 )
 from pipeline.records import extract
 from pipeline.triggers import TriggerIndex
-from pipeline.unlocks import routes_finder
+from pipeline.unlocks import Definition, RouteKind, UnlockConfig, UnlockIndex, routes, routes_finder
 
 #: Every combination an empire can be created as, all DLC owned. 16 regular (the
 #: four toggles other than Wilderness, free), 10 hive minds (Wilderness forces
@@ -107,6 +108,43 @@ def test_a_perk_is_impossible_when_its_own_potential_is():
     assert _trigger("has_ascension_perk = ap_mechromancy", Profile("machine"), defs) is TV.UNKNOWN
 
 
+def test_a_scoped_flag_is_the_flag():
+    """``fotd_hunter@capital_scope.observation_outpost_owner`` is ``fotd_hunter``, set per scope."""
+    defs = _definitions()
+    defs.flag_words = frozenset({"fotd_hunter"})
+    assert _trigger("has_country_flag = fotd_hunter@root", Profile("regular"), defs) is TV.UNKNOWN
+
+
+def test_a_route_is_closed_where_a_condition_on_it_cannot_hold():
+    """An event only gestalt empires see, reached through an option only militarists can pick."""
+    index = UnlockIndex(
+        definitions={
+            ("event", "e.1"): Definition(grants=["t"], trigger=parse("is_gestalt = yes")),
+            ("event", "e.2"): Definition(
+                calls=[("event", "e.1")],
+                call_guards={("event", "e.1"): [(parse("is_militarist = yes"),)]},
+            ),
+        }
+    )
+    defs = _definitions(
+        triggers="""
+            is_gestalt = { has_ethic = ethic_gestalt_consciousness }
+            is_militarist = { has_ethic = ethic_militarist }
+        """
+    )
+    [route] = routes("t", index, UnlockConfig())
+    assert route_truth(Evaluator(Profile("regular"), defs), route, "t", index) is TV.FALSE
+    assert route_truth(Evaluator(Profile("hive"), defs), route, "t", index) is TV.FALSE
+
+    # A second way to the event, with no option in the way, opens it to hive minds.
+    index.definitions[("event", "e.3")] = Definition(calls=[("event", "e.1")])
+    index._callers = None
+    [route] = routes("t", index, UnlockConfig())
+    assert len(route.chains) == 2
+    assert route_truth(Evaluator(Profile("hive"), defs), route, "t", index) is not TV.FALSE
+    assert route_truth(Evaluator(Profile("regular"), defs), route, "t", index) is TV.FALSE
+
+
 def test_designer_blocks_read_value_sets_and_limits():
     defs = _definitions(
         civics="""
@@ -150,6 +188,8 @@ def built(install, gigas_root: Path):
         extraction.profiles,
         routes_finder(extraction.unlock_routes, extraction.unlocks, extraction.unlock_config),
         extraction.unlocks.component_prerequisites,
+        extraction.unlocks,
+        extraction.crisis_levels,
     )
     return extraction, slots, views
 
@@ -284,3 +324,30 @@ def test_a_technology_only_a_perk_hands_out_is_gone_without_the_perk(built):
     birch = views.technology_hidden["giga_tech_birch_world_1"]
     assert birch & _bit(extraction, "regular-nomadic")
     assert not birch & _bit(extraction, "regular")
+
+
+@pytest.mark.corpus
+def test_an_event_only_one_origin_sees_is_no_way_in_for_the_rest(built):
+    """Materiality Engine comes from the Shroud-Forged situation, an origin for machine intelligences."""
+    extraction, _, views = built
+    engine = views.technology_hidden["tech_materiality_engine"]
+    assert not engine & _bit(extraction, "machine")
+    assert engine & _bit(extraction, "regular-machine-species")
+    assert engine & _bit(extraction, "hive")
+
+
+@pytest.mark.corpus
+def test_an_event_that_excludes_machine_intelligences_hides_its_grant(built):
+    """Enhanced Cryosleep Sedatives: ``OR = { is_machine_empire = no is_individual_machine = yes }``."""
+    extraction, _, views = built
+    sedatives = views.technology_hidden["tech_enhanced_cryosleep_sedatives"]
+    assert sedatives & _bit(extraction, "machine")
+    assert not sedatives & _bit(extraction, "regular-machine-species")
+
+
+@pytest.mark.corpus
+def test_a_route_no_empire_can_take_is_dropped(built):
+    """Psionic Shields' tradition is in the pre-Shroud Psionics tree, which owning the DLC replaces."""
+    extraction, _, _ = built
+    kinds = {r.kind for r in extraction.unlock_routes["tech_psionic_shield"]}
+    assert RouteKind.TRADITION not in kinds

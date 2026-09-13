@@ -62,6 +62,8 @@ export interface RawNode {
   /** Badges that differ under some profiles: `pb` absent for no badge, `pi` 1
    *  when the badge's gate is inherited. */
   bv?: { m: string; pb?: number; pi: number }[];
+  /** Tags that differ under some profiles, `tg` absent for none. */
+  tv?: { m: string; tg?: string }[];
 }
 
 export interface RawRow {
@@ -103,6 +105,8 @@ export interface RawDataset {
   toggles: [string, string][];
   rows: RawRow[];
   bands: RawBand[];
+  /** `[tier, n]`: nothing of the tier is offered before n of the tier below are researched. */
+  tiers?: [number, number][];
   repeatableColumn: number;
   columns: number;
   nodes: RawNode[];
@@ -170,6 +174,8 @@ export interface TechNode {
   presentations: Presentation[];
   baseBadge: Badge;
   badges: Badge[];
+  baseTag?: string;
+  tags: { mask: bigint; tag?: string }[];
   /** Indices of nodes this one depends on, in the current view. */
   incoming: number[];
   /** Indices of nodes that depend on this one, in the current view. */
@@ -250,6 +256,8 @@ export function expand(raw: RawDataset): Dataset {
       })),
       baseBadge: { mask: 0n, perkBadge: node.pb, perkInherited: flags(node, "perk-inherited") },
       badges: (node.bv ?? []).map((b) => ({ mask: mask(b.m), perkBadge: b.pb, perkInherited: b.pi === 1 })),
+      baseTag: node.tg,
+      tags: (node.tv ?? []).map((v) => ({ mask: mask(v.m), tag: v.tg })),
       incoming: [],
       outgoing: [],
     };
@@ -308,6 +316,8 @@ export function applyView(data: Dataset, profile: number | null, isolated: Set<n
       (profile === null ? undefined : node.badges.find((b) => (b.mask & bit) !== 0n)) ?? node.baseBadge;
     node.perkBadge = badge.perkBadge;
     node.perkInherited = badge.perkInherited;
+    const tag = profile === null ? undefined : node.tags.find((v) => (v.mask & bit) !== 0n);
+    node.tag = tag ? tag.tag : node.baseTag;
   });
 
   let edges: [number, number, number][];

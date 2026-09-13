@@ -17,6 +17,11 @@ const ALL = "all";
 export interface ProfilePicker {
   /** The chosen profile's index into `dataset.profiles`, or null for every empire. */
   readonly current: number | null;
+  /**
+   * Show `index` as chosen without reporting a change or remembering it: a
+   * link opening someone else's empire leaves the reader's own choice saved.
+   */
+  show(index: number | null): void;
 }
 
 interface State {
@@ -151,6 +156,14 @@ export function mountProfilePicker(
   return {
     get current() {
       return current;
+    },
+    show(index: number | null) {
+      const profile = index === null ? undefined : profiles[index];
+      state.authority = profile?.a ?? null;
+      state.toggles = new Set(profile?.t ?? []);
+      current = profile ? index : null;
+      note = "";
+      render();
     },
   };
 }

@@ -21,13 +21,17 @@ export class Camera {
   /** Screen pixels at the right covered by the detail panel, kept clear by
    *  `fit` and by centring. */
   rightInset = 0;
+  /** The same at the bottom, where a phone shows the panel as a sheet. */
+  bottomInset = 0;
 
   constructor(
     /** The size of what is shown, which changes with the view. */
     private readonly size: () => { width: number; height: number },
     private viewport: Viewport,
-    /** Screen pixels at the top covered by a fixed header, kept clear by `fit`. */
-    private readonly topInset = 0,
+    /** Screen pixels at the top covered by the header and toolbar, kept clear by
+     *  `fit`. Read each time: the toolbar grows when it wraps or shows the
+     *  isolation chip. */
+    private readonly topInset: () => number = () => 0,
   ) {}
 
   setViewport(viewport: Viewport): void {
@@ -38,13 +42,14 @@ export class Camera {
   /** Fit the whole tree on screen, below the header. */
   fit(): void {
     const content = this.size();
-    const height = this.viewport.height - this.topInset;
+    const top = this.topInset();
+    const height = this.viewport.height - top - this.bottomInset;
     const width = this.viewport.width - this.rightInset;
     const sx = width / content.width;
     const sy = height / content.height;
     this.scale = Math.max(this.minScale, Math.min(sx, sy) * 0.98);
     this.x = (width - content.width * this.scale) / 2;
-    this.y = this.topInset + (height - content.height * this.scale) / 2;
+    this.y = top + (height - content.height * this.scale) / 2;
   }
 
   panBy(dx: number, dy: number): void {
@@ -106,6 +111,7 @@ export class Camera {
     // in the part of it the panel leaves uncovered.
     const width = this.viewport.width - this.rightInset;
     if (scaledWidth < width) this.x = (width - scaledWidth) / 2;
-    if (scaledHeight < this.viewport.height) this.y = (this.viewport.height - scaledHeight) / 2;
+    const height = this.viewport.height - this.bottomInset;
+    if (scaledHeight < height) this.y = (height - scaledHeight) / 2;
   }
 }

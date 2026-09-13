@@ -24,8 +24,9 @@ from pipeline.records import Extraction, build_record, extract
 from pipeline.triggers import TriggerIndex
 from pipeline.unlocks import Route, RouteKind
 
-#: Technologies declaring at least one gate.
-GATED_COUNT = 114
+#: Technologies declaring at least one gate. Psionic Shields has none: its one
+#: tradition route is the pre-Shroud Psionics tree, which owning the DLC replaces.
+GATED_COUNT = 113
 #: Of those, gated by at least one ascension perk.
 PERK_GATED_COUNT = 91
 #: Technologies with no gate of their own that inherit one through what they need.

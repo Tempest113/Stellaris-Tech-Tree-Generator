@@ -31,7 +31,7 @@ TAG_COUNTS = {
     "Observation Insight": 13,
     "Special Project": 13,
     "Debris": 12,
-    "Covenant": 9,
+    "Covenant": 10,
     "Reality Code": 9,
     "Anomaly": 7,
     "Archaeology": 6,
@@ -115,6 +115,45 @@ def test_calls_are_recorded():
         effects={"my_effect"},
     )
     assert definition.calls == [("event", "x.1"), ("special_project", "PROJ"), ("scripted_effects", "my_effect")]
+
+
+def _guard_keys(occurrences) -> list[list[str]]:
+    return [[pair.key for block in guards for pair in block.pairs()] for guards in occurrences]
+
+
+def test_the_conditions_on_the_way_to_a_grant_are_kept():
+    """An ``if`` limit and an option's ``trigger`` and ``allow`` all have to hold."""
+    definition = Definition()
+    source = """
+        immediate = { if = { limit = { is_gestalt = no } give_technology = a } }
+        option = { trigger = { is_ai = no } allow = { is_militarist = yes } country_event = { id = x.2 } }
+        option = { give_technology = a }
+    """
+    _scan(parse(source), definition, set(), {"x.2"}, scoped=True)
+    assert _guard_keys(definition.grant_guards["a"]) == [["is_gestalt"], []]
+    assert _guard_keys(definition.call_guards[("event", "x.2")]) == [["is_ai", "is_militarist"]]
+
+
+def test_a_condition_in_another_scope_is_not_read():
+    """Inside ``owner`` a limit asks about the owner's planet or fleet, not the empire."""
+    definition = Definition()
+    source = "if = { limit = { is_gestalt = no } capital_scope = { if = { limit = { is_capital = yes } give_technology = a } } }"
+    _scan(parse(source), definition, set(), scoped=True)
+    assert _guard_keys(definition.grant_guards["a"]) == [["is_gestalt"]]
+
+
+def test_a_container_of_unknown_scope_reads_no_conditions():
+    definition = _definition("if = { limit = { is_gestalt = no } give_technology = a }")
+    assert _guard_keys(definition.grant_guards["a"]) == [[]]
+
+
+def test_every_chain_of_a_route_is_kept():
+    index = _index(
+        **{"event__a.1": Definition(grants=["t"])},
+        **{"event__a.2": Definition(grants=["t"])},
+    )
+    [route] = routes("t", index, UnlockConfig())
+    assert set(route.chains) == {(("event", "a.1"),), (("event", "a.2"),)}
 
 
 # --------------------------------------------------------------------------

@@ -354,3 +354,24 @@ def test_machine_age_megastructures_are_ordinary_research(records):
 @pytest.mark.corpus
 def test_every_record_resolves_an_icon(records):
     assert all(not r.icon(records.icons).is_missing for r in records)
+
+
+def test_a_cost_block_keeps_its_modifiers():
+    record = _record("t = { area = physics tier = 1 cost = { factor = 100 modifier = { factor = 0.5 has_technology = x } } }")
+    assert record.cost == 100
+    assert [m.scalar_text("factor") for m in record.cost_modifiers] == ["0.5"]
+    assert _record("t = { area = physics tier = 1 cost = 100 }").cost_modifiers == ()
+
+
+@pytest.mark.corpus
+def test_only_the_cosmic_storms_technologies_have_conditional_costs(records):
+    """Their cost moves with Galactic Community resolutions; nothing else's does."""
+    conditional = {r.key for r in records if r.cost_modifiers}
+    assert len(conditional) == 10
+    assert all("storm" in key for key in conditional)
+
+
+@pytest.mark.corpus
+def test_tiers_two_to_five_need_six_of_the_tier_before(records):
+    assert records.tier_requirements == {2: 6, 3: 6, 4: 6, 5: 6}
+

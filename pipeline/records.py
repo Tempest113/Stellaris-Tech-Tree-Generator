@@ -155,6 +155,10 @@ class TechnologyRecord:
     swaps: tuple[TechnologySwap, ...] = ()
 
     cost: float | None = None
+    #: ``modifier`` blocks inside a block-shaped ``cost``: a ``factor`` and the
+    #: conditions it applies under. The Cosmic Storms technologies cost less or
+    #: more while certain Galactic Community resolutions are in force.
+    cost_modifiers: tuple[Block, ...] = ()
     weight: float | None = None
     #: Present iff the technology is repeatable. ``-1`` means unlimited.
     levels: int | None = None
@@ -400,6 +404,27 @@ def _parse_cost(block: Block) -> float | None:
     return _number(value.scalar_text("factor"))
 
 
+def _parse_cost_modifiers(block: Block) -> tuple[Block, ...]:
+    value = block.get_last("cost")
+    return _blocks(value, "modifier") if isinstance(value, Block) else ()
+
+
+def tier_requirements(load_order: LoadOrder) -> dict[int, int]:
+    """Tier -> how many technologies of the tier below unlock it.
+
+    ``common/technology/tier`` sets ``previously_unlocked = 6`` on tiers 2 to 5:
+    nothing of a tier is offered until six of the tier before are researched.
+    """
+    found: dict[int, int] = {}
+    for key, block in merge_keys(resolve_files(load_order, "common/technology/tier")).blocks.items():
+        if not isinstance(block, Block) or not key.isdigit():
+            continue
+        needed = _number(_text(block, "previously_unlocked"))
+        if needed:
+            found[int(key)] = int(needed)
+    return found
+
+
 def _blocks(block: Block, key: str) -> tuple[Block, ...]:
     return tuple(v for v in block.get_all(key) if isinstance(v, Block))
 
@@ -439,6 +464,7 @@ def build_record(key: str, block: Block, *, origin: KeyOrigin | None = None) -> 
         prerequisites=_parse_prerequisites(block.block_at("prerequisites")),
         swaps=_parse_swaps(block),
         cost=_parse_cost(block),
+        cost_modifiers=_parse_cost_modifiers(block),
         weight=_number(_text(block, "weight")),
         levels=int(levels) if levels is not None else None,
         cost_per_level=_number(_text(block, "cost_per_level")),
@@ -486,6 +512,8 @@ class Extraction:
     tradition_trees: dict[str, str] = field(default_factory=dict)
     #: Crisis level -> the perk whose path it is on, and its place there.
     crisis_levels: dict[str, CrisisLevel] = field(default_factory=dict)
+    #: Tier -> technologies of the tier below needed first.
+    tier_requirements: dict[int, int] = field(default_factory=dict)
     #: What profiles are read against, and every profile an empire can be.
     profile_definitions: profiles_mod.Definitions | None = None
     profiles: tuple[profiles_mod.Profile, ...] = ()
@@ -587,9 +615,21 @@ def extract(
     config = unlock_config if unlock_config is not None else unlocks_mod.load_config()
     extraction.unlock_config = config
     extraction.unlocks = unlocks_mod.build_index(load_order, config)
-    extraction.unlock_routes = unlocks_mod.build(
-        extraction.technologies, extraction.unlocks, config
-    )
+    extraction.profile_definitions = profiles_mod.load_definitions(load_order, triggers)
+    extraction.profiles = profiles_mod.valid_profiles(extraction.profile_definitions)
+    extraction.crisis_levels = crisis_levels(load_order)
+    # A way in no empire can take -- an AI-only branch, a tradition tree the
+    # owned DLC replaces -- is no way in, and would otherwise name a gate or
+    # hold back a tag nobody meets.
+    evaluators = [profiles_mod.Evaluator(p, extraction.profile_definitions) for p in extraction.profiles]
+    extraction.unlock_routes = {
+        key: profiles_mod.playable_routes(
+            found, key, evaluators, extraction.unlocks, extraction.crisis_levels
+        )
+        for key, found in unlocks_mod.build(
+            extraction.technologies, extraction.unlocks, config
+        ).items()
+    }
     flag_cache: dict[str, tuple | None] = {}
 
     def flag_conditions(flag: str):
@@ -608,14 +648,12 @@ def extract(
         flags=flag_conditions,
         defined=defined,
     )
-    extraction.profile_definitions = profiles_mod.load_definitions(load_order, triggers)
-    extraction.profiles = profiles_mod.valid_profiles(extraction.profile_definitions)
     extraction.disabled = profiles_mod.disabled(
         extraction.technologies, extraction.profile_definitions, extraction.profiles
     )
     extraction.perk_contexts = perk_contexts(load_order)
     extraction.tradition_trees = tradition_trees(load_order)
-    extraction.crisis_levels = crisis_levels(load_order)
+    extraction.tier_requirements = tier_requirements(load_order)
 
     if expander.stats.missing_scripts:
         extraction.problems.append(

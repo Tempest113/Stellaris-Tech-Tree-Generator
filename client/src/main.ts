@@ -5,16 +5,23 @@
  *   hover / tap-select  -> light the technology's ancestry and descendants
  *   middle-click / long-press -> isolate it into a mini-tree
  *   right-click / tap   -> detail popup
+ * and two fingers pinch to zoom.
+ *
+ * The view -- empire, pinned technology, isolated lineage -- is mirrored in the
+ * address bar (see `link.ts`), and a link opening the page restores it.
  */
 
 import { Camera } from "./camera";
 import { CARD_HEIGHT, CARD_WIDTH } from "./geometry";
+import { mountGuide } from "./guide";
+import { ALL_EMPIRES, linkUrl, readLink, writeLink, type LinkState } from "./link";
 import { mountProfilePicker } from "./profile";
 import { mountSearch } from "./search";
 import { Renderer, emptySelection } from "./renderer";
 import {
   applyView,
   expand,
+  hiddenByProfile,
   mask,
   profileBit,
   type Dataset,
@@ -23,6 +30,8 @@ import {
 
 const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 12;
+/** Share of a phone screen the detail sheet covers; `#panel` in index.html agrees. */
+const PHONE_SHEET = 0.7;
 /** Rendered size of a perk icon in the detail panel. */
 const PERK_ICON_PX = 20;
 /**
@@ -38,18 +47,27 @@ async function main(): Promise<void> {
   const profileBar = document.getElementById("profile") as HTMLElement;
   const toolbar = document.getElementById("toolbar") as HTMLElement;
   const isolationBar = document.getElementById("isolation") as HTMLElement;
+  const guideDialog = document.getElementById("guide") as HTMLDialogElement;
 
   status.textContent = "Loading dataset…";
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
   const data = expand(raw);
 
+  const guide = mountGuide(document.getElementById("guide-button") as HTMLButtonElement, guideDialog, raw);
+
   const picker = mountProfilePicker(profileBar, raw, (profile) => {
     applyView(data, profile, null);
+    isolatedRoot = null;
     refreshView();
     selection.pinned = null;
     select(null, true);
   });
-  if (picker.current !== null) applyView(data, picker.current, null);
+  // A link's empire wins over the one remembered, without replacing it.
+  const link = readLink();
+  const linkedProfile = profileFromLink(link.empire);
+  if (linkedProfile !== undefined) picker.show(linkedProfile);
+  const initialProfile = linkedProfile !== undefined ? linkedProfile : picker.current;
+  if (initialProfile !== null) applyView(data, initialProfile, null);
 
   const search = mountSearch(
     document.getElementById("search") as HTMLElement,
@@ -62,7 +80,7 @@ async function main(): Promise<void> {
   const camera = new Camera(
     () => data.view.geometry,
     { width: canvas.clientWidth, height: canvas.clientHeight },
-    toolbar.getBoundingClientRect().bottom + 8,
+    () => toolbar.getBoundingClientRect().bottom + 8,
   );
   const renderer = new Renderer(canvas, data, camera);
   renderer.resize();
@@ -139,6 +157,7 @@ async function main(): Promise<void> {
         selection.descendants.clear();
         hidePanel();
       }
+      if (pin) syncLink(false);
       schedule();
       return;
     }
@@ -150,6 +169,7 @@ async function main(): Promise<void> {
     selection.ancestors = ancestors;
     selection.descendants = descendants;
     if (selection.pinned !== null) showPanel(active);
+    if (pin) syncLink(false);
     schedule();
   }
 
@@ -165,8 +185,12 @@ async function main(): Promise<void> {
     const node = data.nodes[index]!;
     selection.pinned = null;
     const scale = Math.max(camera.scale, 0.8);
-    const offset = panelInset() / 2 / scale;
-    camera.centreOn(node.x + CARD_WIDTH / 2 + offset, node.y + CARD_HEIGHT / 2, scale);
+    // Centre in the space between the toolbar and the panel, wherever the panel sits.
+    const insets = panelInsets();
+    const top = insets.bottom > 0 ? toolbar.getBoundingClientRect().bottom : 0;
+    const offsetX = insets.right / 2 / scale;
+    const offsetY = (window.innerHeight / 2 - (top + window.innerHeight - insets.bottom) / 2) / scale;
+    camera.centreOn(node.x + CARD_WIDTH / 2 + offsetX, node.y + CARD_HEIGHT / 2 + offsetY, scale);
     select(index, true);
   }
 
@@ -193,11 +217,17 @@ async function main(): Promise<void> {
     applyView(data, profile, keep);
     isolatedRoot = target;
     refreshView();
-    // The panel opens with the selection; fit into the space it leaves.
-    camera.rightInset = panelInset();
-    camera.fit();
     selection.pinned = null;
-    select(target, true);
+    // On a phone the details sheet would cover most of the lineage just
+    // fitted, so the lineage gets the screen and is lit, and a tap opens the
+    // details. Elsewhere the panel opens beside it.
+    const sheet = panelInsets().bottom > 0;
+    hidePanel();
+    if (!sheet) setPanelInsets(panelInsets());
+    camera.fit();
+    // Its own history entry, so Back returns to the whole tree.
+    syncLink(true);
+    select(target, !sheet);
   }
 
   let isolatedRoot: number | null = null;
@@ -236,6 +266,68 @@ async function main(): Promise<void> {
     isolationBar.append(label, exit);
   }
 
+  // -- the address bar ---------------------------------------------------
+
+  /** Set while a link is being applied, so applying it writes no history of its own. */
+  let applyingLink = false;
+
+  function profileFromLink(empire: string | null): number | null | undefined {
+    if (empire === null) return undefined;
+    if (empire === ALL_EMPIRES) return null;
+    const index = raw.profiles.findIndex((p) => p.k === empire);
+    return index >= 0 ? index : undefined;
+  }
+
+  function linkState(): LinkState {
+    const profile = data.view.profile;
+    return {
+      empire: profile === null ? ALL_EMPIRES : raw.profiles[profile]!.k,
+      tech: selection.pinned === null ? null : data.nodes[selection.pinned]!.key,
+      isolate: data.view.isolated === null || isolatedRoot === null ? null : data.nodes[isolatedRoot]!.key,
+    };
+  }
+
+  function syncLink(push: boolean): void {
+    if (!applyingLink) writeLink(linkState(), push);
+  }
+
+  /** A slot of `key` the current profile shows, preferring one on screen. */
+  function slotFor(key: string | null): number | null {
+    if (key === null) return null;
+    const indices = data.byKey.get(key) ?? [];
+    return (
+      indices.find((i) => !data.nodes[i]!.hidden) ?? indices.find((i) => !hiddenByProfile(data, i)) ?? null
+    );
+  }
+
+  /** Bring the view to what a link says. Anything it names that this dataset lacks is left as it is. */
+  function applyLink(state: LinkState): void {
+    applyingLink = true;
+    try {
+      const profile = profileFromLink(state.empire);
+      if (profile !== undefined && profile !== data.view.profile) {
+        picker.show(profile);
+        applyView(data, profile, null);
+        isolatedRoot = null;
+        refreshView();
+        selection.pinned = null;
+        select(null, true);
+      }
+      if (state.isolate !== linkState().isolate) {
+        const root = slotFor(state.isolate);
+        if (root !== null) isolate(root);
+        else if (state.isolate === null) exitIsolation();
+      }
+      if (state.tech !== linkState().tech) {
+        const target = slotFor(state.tech);
+        if (target !== null) reveal(target);
+        else if (state.tech === null) select(null, true);
+      }
+    } finally {
+      applyingLink = false;
+    }
+  }
+
   // -- detail panel ------------------------------------------------------
 
   /** Visible slots sharing a node's technology. */
@@ -256,12 +348,15 @@ async function main(): Promise<void> {
     a: Condition[][];
     v?: string;
   };
-  /** A way an undrawable technology reaches a player. */
+  /** A way an undrawable technology reaches a player; `x` masks the profiles it is closed to. */
   type Route = {
     k: "perk" | "tradition" | "crisis" | "tagged" | "research" | "start" | "event";
     n: string;
+    x?: string;
   };
-  type Detail = { d: string; p: string[][]; ap?: Gate[]; u?: Route[]; st?: string[] };
+  /** A cost factor and the conditions it applies under, in words. */
+  type CostModifier = { f: number; w: string };
+  type Detail = { d: string; p: string[][]; ap?: Gate[]; u?: Route[]; st?: string[]; cm?: CostModifier[] };
   let details: Record<string, Detail> | null = null;
   async function showPanel(index: number): Promise<void> {
     const node = data.nodes[index]!;
@@ -287,6 +382,8 @@ async function main(): Promise<void> {
       .slice(0, 24)
       .map((name) => `<li>${escapeHtml(name)}</li>`)
       .join("");
+    const isolatedHere =
+      data.view.isolated !== null && isolatedRoot !== null && data.nodes[isolatedRoot]!.key === node.key;
 
     panel.innerHTML = `
       <button class="close" aria-label="Close">&times;</button>
@@ -304,9 +401,15 @@ async function main(): Promise<void> {
         ${node.variant && data.view.profile === null ? '<span class="flag">Variant for Some Empires</span>' : ""}
         ${node.spilled ? '<span class="flag">Placed Past Its Tier Band</span>' : ""}
       </p>
+      <div class="actions">
+        <button type="button" data-action="isolate">${isolatedHere ? "Show Whole Tree" : "Isolate"}</button>
+        <button type="button" data-action="link">Copy Link</button>
+        <span class="done" role="status" aria-live="polite"></span>
+      </div>
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
       ${gateSection(gates)}
-      ${routeSection(detail?.u, node.tag)}
+      ${routeSection(routesForProfile(detail?.u), node.tag)}
+      ${costSection(detail?.cm)}
       <h3>Prerequisites ${prereqs ? "" : "<span class='none'>none</span>"}</h3>
       <ul>${prereqs}</ul>
       <h3>Unlocks ${dependents ? "" : "<span class='none'>nothing</span>"}</h3>
@@ -314,21 +417,58 @@ async function main(): Promise<void> {
       <p class="key">${escapeHtml(node.key)}</p>
     `;
     panel.hidden = false;
-    camera.rightInset = panelInset();
+    setPanelInsets(panelInsets());
     panel.querySelector(".close")?.addEventListener("click", () => {
       selection.pinned = null;
       select(null, true);
     });
+    panel.querySelector('[data-action="isolate"]')?.addEventListener("click", () => {
+      if (isolatedHere) exitIsolation();
+      else isolate(index);
+    });
+    const done = panel.querySelector(".done") as HTMLElement;
+    panel.querySelector('[data-action="link"]')?.addEventListener("click", async () => {
+      const url = linkUrl(linkState());
+      try {
+        await navigator.clipboard.writeText(url);
+        done.textContent = "Copied";
+      } catch {
+        // No clipboard access (an insecure origin, or refused): show it to copy by hand.
+        done.textContent = url;
+      }
+    });
+  }
+
+  /** Cost factors that apply under conditions, in the order the game lists them. */
+  function costSection(modifiers: CostModifier[] | undefined): string {
+    if (!modifiers?.length) return "";
+    const items = modifiers
+      .map((m) => {
+        const tone = m.f < 1 ? "cheaper" : "dearer";
+        return `<li><span class="factor ${tone}">×${m.f}</span> ${escapeHtml(capitalise(m.w))}</li>`;
+      })
+      .join("");
+    return `<h3>Cost Changes</h3><ul class="costs">${items}</ul>`;
   }
 
   function hidePanel(): void {
     panel.hidden = true;
-    camera.rightInset = 0;
+    setPanelInsets({ right: 0, bottom: 0 });
   }
 
-  /** Width the open panel covers on the right; a phone's panel is a bottom sheet. */
-  function panelInset(): number {
-    return window.innerWidth > 700 ? Math.min(420, window.innerWidth) : 0;
+  /**
+   * What the open panel covers: the right edge on a wide screen, the bottom on a
+   * phone, where it is a sheet. Measured as if open, since isolating fits the
+   * view before the panel appears.
+   */
+  function panelInsets(): { right: number; bottom: number } {
+    if (window.innerWidth > 700) return { right: Math.min(420, window.innerWidth), bottom: 0 };
+    return { right: 0, bottom: Math.round(window.innerHeight * PHONE_SHEET) };
+  }
+
+  function setPanelInsets(insets: { right: number; bottom: number }): void {
+    camera.rightInset = insets.right;
+    camera.bottomInset = insets.bottom;
   }
 
   /**
@@ -348,6 +488,14 @@ async function main(): Promise<void> {
         a: gate.a.filter((alternative) => alternative.every((c) => (mask(c.x) & bit) === 0n)),
       }))
       .filter((gate) => gate.a.length > 0);
+  }
+
+  /** The ways in the current profile can take: a hive mind is not offered a militarist's project. */
+  function routesForProfile(routes: Route[] | undefined): Route[] | undefined {
+    const profile = data.view.profile;
+    if (!routes || profile === null) return routes;
+    const bit = profileBit(profile);
+    return routes.filter((route) => (mask(route.x) & bit) === 0n);
   }
 
   /** A gate as plain text: alternatives joined by "or", conditions by "+". */
@@ -530,9 +678,42 @@ async function main(): Promise<void> {
   let lastY = 0;
   let longPressTimer: number | undefined;
   let pressStart = { x: 0, y: 0 };
+  /** Pointers currently down, by id: two of them pinch. */
+  const pointers = new Map<number, { x: number; y: number }>();
+  /** The last pinch reading: finger spread and midpoint. */
+  let pinch: { spread: number; x: number; y: number } | null = null;
+
+  function cancelLongPress(): void {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = undefined;
+    }
+  }
+
+  function readPinch(): { spread: number; x: number; y: number } {
+    const [a, b] = [...pointers.values()];
+    return {
+      spread: Math.hypot(a!.x - b!.x, a!.y - b!.y),
+      x: (a!.x + b!.x) / 2,
+      y: (a!.y + b!.y) / 2,
+    };
+  }
 
   canvas.addEventListener("pointerdown", (event) => {
-    canvas.setPointerCapture(event.pointerId);
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // A synthetic or already-released pointer cannot be captured; the gesture still works.
+    }
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) {
+      // A second finger turns the gesture into a pinch: no tap, no long-press.
+      cancelLongPress();
+      moved = true;
+      pinch = readPinch();
+      return;
+    }
+    if (pointers.size > 2) return;
     dragging = true;
     moved = false;
     lastX = event.clientX;
@@ -545,22 +726,32 @@ async function main(): Promise<void> {
     if (event.pointerType === "touch") {
       longPressTimer = window.setTimeout(() => {
         longPressTimer = undefined;
+        // The finger lifting afterwards is the end of the press, not a tap.
+        moved = true;
         isolate(renderer.pick(event.clientX, event.clientY));
       }, LONG_PRESS_MS);
     }
   });
 
   canvas.addEventListener("pointermove", (event) => {
+    if (pointers.has(event.pointerId)) {
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    if (pinch !== null && pointers.size >= 2) {
+      const next = readPinch();
+      if (pinch.spread > 0) camera.zoomAt(next.x, next.y, next.spread / pinch.spread);
+      camera.panBy(next.x - pinch.x, next.y - pinch.y);
+      pinch = next;
+      schedule();
+      return;
+    }
     if (dragging) {
       const dx = event.clientX - lastX;
       const dy = event.clientY - lastY;
       if (Math.abs(event.clientX - pressStart.x) > LONG_PRESS_SLOP ||
           Math.abs(event.clientY - pressStart.y) > LONG_PRESS_SLOP) {
         moved = true;
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = undefined;
-        }
+        cancelLongPress();
       }
       lastX = event.clientX;
       lastY = event.clientY;
@@ -574,17 +765,31 @@ async function main(): Promise<void> {
     }
   });
 
-  canvas.addEventListener("pointerup", (event) => {
-    dragging = false;
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = undefined;
+  /** A pointer lifted or lost. Only the last one up can be a tap. */
+  function release(event: PointerEvent, cancelled: boolean): void {
+    pointers.delete(event.pointerId);
+    cancelLongPress();
+    if (pointers.size >= 2) {
+      pinch = readPinch();
+      return;
     }
-    if (moved) return;
+    pinch = null;
+    if (pointers.size === 1) {
+      // Back to dragging with the finger left down, from where it is now.
+      const [rest] = [...pointers.values()];
+      lastX = rest!.x;
+      lastY = rest!.y;
+      return;
+    }
+    dragging = false;
+    if (moved || cancelled) return;
     const index = renderer.pick(event.clientX, event.clientY);
     if (event.button === 1) isolate(index);
     else select(index, true);
-  });
+  }
+
+  canvas.addEventListener("pointerup", (event) => release(event, false));
+  canvas.addEventListener("pointercancel", (event) => release(event, true));
 
   canvas.addEventListener("auxclick", (event) => event.preventDefault());
   canvas.addEventListener("contextmenu", (event) => {
@@ -606,7 +811,12 @@ async function main(): Promise<void> {
   window.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "SELECT")) return;
-    if (event.key === "/" || (event.key === "k" && (event.ctrlKey || event.metaKey))) {
+    // The open guide handles its own keys; Esc closes it natively.
+    if (guideDialog.open) return;
+    if (event.key === "?") {
+      event.preventDefault();
+      guide.open();
+    } else if (event.key === "/" || (event.key === "k" && (event.ctrlKey || event.metaKey))) {
       event.preventDefault();
       search.focus();
     } else if (event.key === "Escape") {
@@ -645,7 +855,15 @@ async function main(): Promise<void> {
     isolate,
     select,
     reveal,
+    applyLink,
   };
+
+  // The technology and lineage a link names, once everything they need exists.
+  applyLink(link);
+  // Back and Forward, and a hash edited by hand.
+  const followLink = () => applyLink(readLink());
+  window.addEventListener("popstate", followLink);
+  window.addEventListener("hashchange", followLink);
 
   schedule();
 }

@@ -401,7 +401,10 @@ class Evaluator:
         if lowered == "host_has_dlc" or (lowered.startswith("has_") and lowered.endswith("_dlc")):
             return polar(TV.TRUE) if yes_no else TV.TRUE
         if lowered == "has_country_flag" and self.defs.flag_words is not None:
-            return TV.UNKNOWN if text in self.defs.flag_words else TV.FALSE
+            # `fotd_hunter@capital_scope.observation_outpost_owner` is the flag
+            # `fotd_hunter` tagged with a scope when it is set.
+            name = text.split("@", 1)[0]
+            return TV.UNKNOWN if name in self.defs.flag_words else TV.FALSE
         if lowered == "is_nomadic" and yes_no:
             return polar(_truth(self.profile.nomadic))
         if lowered == "uses_ship_category":
@@ -698,6 +701,79 @@ def condition_truth(ev: Evaluator, condition, crisis_levels) -> TV:
     return TV.UNKNOWN
 
 
+def route_truth(ev: Evaluator, route, technology: str, index=None, crisis_levels=None) -> TV:
+    """Whether an empire of the evaluator's profile can come by ``technology`` along ``route``.
+
+    ``FALSE`` when what the route starts from -- an ascension perk, tradition
+    or crisis path -- is out of reach, or when every chain that reads as the
+    route passes a condition that cannot hold: an event's trigger, or the
+    ``if`` or event option the grant or the next call sits in. A trigger that
+    needs a machine empire closes a route to every biological one.
+
+    A technology some of whose chains were never enumerated keeps every route
+    open: the unread chains could be the way in.
+    """
+    from .unlocks import RouteKind
+
+    if route.kind is RouteKind.PERK:
+        root = ev.available("perk", route.key)
+    elif route.kind is RouteKind.TRADITION:
+        root = ev.available("tradition", route.key)
+    elif route.kind is RouteKind.CRISIS and crisis_levels and route.key in crisis_levels:
+        root = ev.available("perk", crisis_levels[route.key].perk)
+    else:
+        root = TV.UNKNOWN
+    if root is TV.FALSE or index is None:
+        return root
+    if not index.truncated.isdisjoint(index.granted_by.get(technology, ())):
+        return root
+    chains = route.chains or (route.chain,)
+    return _and([root, _or(_chain_truth(ev, chain, technology, index) for chain in chains)])
+
+
+def playable_routes(routes, technology: str, evaluators, index=None, crisis_levels=None) -> tuple:
+    """``routes`` without those no empire can take.
+
+    Mega-Engineering's Galactic Wonders grant sits in an ``is_ai = yes``
+    branch, and the pre-Shroud Psionics tree's Breach the Shroud needs the
+    Shroud not owned. When no route is open to anyone, all are kept: the
+    technology is then hidden for every profile, and its tag is still worth
+    reviewing.
+    """
+    kept = tuple(
+        route
+        for route in routes
+        if any(route_truth(ev, route, technology, index, crisis_levels) is not TV.FALSE for ev in evaluators)
+    )
+    return kept or tuple(routes)
+
+
+def route_closed(route, technology: str, evaluators, index=None, crisis_levels=None) -> int:
+    """Mask of the profiles ``route`` is closed to."""
+    mask = 0
+    for bit, ev in enumerate(evaluators):
+        if route_truth(ev, route, technology, index, crisis_levels) is TV.FALSE:
+            mask |= 1 << bit
+    return mask
+
+
+def _chain_truth(ev: Evaluator, chain, technology: str, index) -> TV:
+    parts: list[TV] = []
+    for position, container in enumerate(chain):
+        definition = index.definitions.get(container)
+        if definition is None:
+            continue
+        if definition.trigger is not None:
+            parts.append(ev.trigger(definition.trigger))
+        if position == 0:
+            occurrences = definition.grant_guards.get(technology)
+        else:
+            occurrences = definition.call_guards.get(chain[position - 1])
+        if occurrences:
+            parts.append(_or(_and(ev.trigger(g) for g in guards) for guards in occurrences))
+    return _and(parts)
+
+
 def compute_views(
     graph,
     slots,
@@ -705,6 +781,8 @@ def compute_views(
     profiles: tuple[Profile, ...],
     routes_for=None,
     debris: frozenset[str] | set[str] = frozenset(),
+    index=None,
+    crisis_levels=None,
 ) -> Views:
     """Which slots each profile shows, and under which name.
 
@@ -714,9 +792,9 @@ def compute_views(
 
     A technology the research pool never offers the profile -- never offered to
     anyone, or zero-weighted by a modifier that holds for this profile -- is
-    gone too when nothing a player can reach hands it out: every way in is an
-    ascension perk or tradition the profile cannot take, or there is no way in
-    at all. The Birch World comes only from Vast Expanses, which no nomad can
+    gone too when nothing a player can reach hands it out: every way in is
+    closed to the profile (see :func:`route_truth`), or there is no way in at
+    all. The Birch World comes only from Vast Expanses, which no nomad can
     have; the second fallen empire buildings are drawn only with Cosmogenesis,
     which no Wilderness can take. A technology a ship component needs stays,
     being learned from debris.
@@ -729,18 +807,13 @@ def compute_views(
     from .layout import CRISIS_GROUP
 
     from .gates import _zeroing_modifiers
-    from .unlocks import RouteKind
 
     records = graph.records
     evaluators = tuple(Evaluator(p, definitions) for p in profiles)
     routes_for = routes_for or (lambda key: ())
 
-    def unreachable(ev: Evaluator, ways_in) -> bool:
-        return all(
-            r.kind in (RouteKind.PERK, RouteKind.TRADITION)
-            and ev.available("perk" if r.kind is RouteKind.PERK else "tradition", r.key) is TV.FALSE
-            for r in ways_in
-        )
+    def unreachable(ev: Evaluator, key: str, ways_in) -> bool:
+        return all(route_truth(ev, r, key, index, crisis_levels) is TV.FALSE for r in ways_in)
 
     # Per technology, per profile: does it exist, and how does each swap apply?
     exists: dict[str, int] = {}
@@ -756,7 +829,7 @@ def compute_views(
                 gone |= 1 << bit
             elif record.is_undrawable:
                 ways_in = routes_for(key)
-                if ways_in and unreachable(ev, ways_in):
+                if ways_in and unreachable(ev, key, ways_in):
                     gone |= 1 << bit
             elif key not in debris and any(
                 _and(
@@ -767,7 +840,7 @@ def compute_views(
                 is TV.TRUE
                 for modifier in zeroing
             ):
-                if unreachable(ev, routes_for(key)):
+                if unreachable(ev, key, routes_for(key)):
                     gone |= 1 << bit
             remaining = TV.TRUE
             outcomes: list[TV] = []

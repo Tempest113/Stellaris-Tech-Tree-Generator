@@ -195,7 +195,19 @@ def emit(
         extraction.profiles,
         unlocks_mod.routes_finder(extraction.unlock_routes, extraction.unlocks, config),
         extraction.unlocks.component_prerequisites,
+        extraction.unlocks,
+        levels,
     )
+
+    route_masks: dict[tuple[str, unlocks_mod.Route], int] = {}
+
+    def closed_to(key: str, route: unlocks_mod.Route) -> int:
+        """Profiles ``route`` to ``key`` is closed to, cached."""
+        if (key, route) not in route_masks:
+            route_masks[(key, route)] = profiles_mod.route_closed(
+                route, key, views.evaluators, extraction.unlocks, levels
+            )
+        return route_masks[(key, route)]
 
     def presentation(record: TechnologyRecord, swap) -> tuple[str, str]:
         """Name and icon stem of a swap."""
@@ -277,15 +289,26 @@ def emit(
             shown_as.append({"m": format(mask, "x"), "n": swap_name_text, "ic": swap_stem, "sw": swap_name})
         if shown_as:
             node["pv"] = shown_as
-        tag = unlocks_mod.tag_for(
-            record,
-            extraction.unlock_routes.get(slot.technology, ()),
-            config,
-            extraction.unlocks,
-            crisis_names,
-        )
+        technology_routes = extraction.unlock_routes.get(slot.technology, ())
+        tag = unlocks_mod.tag_for(record, technology_routes, config, extraction.unlocks, crisis_names)
         if tag:
             node["tg"] = tag
+        # A tag names the strongest way in, so where that way is closed to a
+        # profile, the profile's tag is the next: a hive mind's Leviathan Tech
+        # Genesis comes from combat, the Technosphere project being militarist.
+        tags: dict[str | None, int] = {}
+        for bit in range(len(extraction.profiles)):
+            open_routes = tuple(r for r in technology_routes if not closed_to(slot.technology, r) >> bit & 1)
+            if not open_routes:
+                continue  # hidden for the profile
+            found = unlocks_mod.tag_for(record, open_routes, config, extraction.unlocks, crisis_names)
+            if found != tag:
+                tags[found] = tags.get(found, 0) | (1 << bit)
+        if tags:
+            node["tv"] = [
+                {"m": format(mask, "x"), **({"tg": found} if found else {})}
+                for found, mask in sorted(tags.items(), key=lambda kv: kv[1])
+            ]
         if record.cost is not None:
             node["$"] = int(record.cost)
         if record.is_repeatable:
@@ -405,6 +428,8 @@ def emit(
             for row in layout.rows
         ],
         "bands": [{"t": b.tier, "s": b.start, "e": b.end} for b in layout.bands],
+        # `[tier, n]`: nothing of the tier is offered before n of the tier below are researched.
+        "tiers": sorted([tier, needed] for tier, needed in extraction.tier_requirements.items()),
         "repeatableColumn": layout.repeatable_column,
         "columns": layout.columns,
         "nodes": nodes,
@@ -485,7 +510,11 @@ def emit(
         return payload
 
     def route_payload(key: str) -> list[dict]:
-        """How an undrawable technology reaches a player, one entry per way."""
+        """How an undrawable technology reaches a player, one entry per way.
+
+        ``x`` masks the profiles a way is closed to. Two ways that read the same
+        are one entry, closed only where both are.
+        """
         payload: list[dict] = []
         for route in extraction.unlock_routes.get(key, ()):
             kind = route.kind
@@ -499,10 +528,57 @@ def emit(
                 name = route.key
             else:
                 name = ""
-            entry = {"k": kind.value, "n": name}
-            if entry not in payload:
-                payload.append(entry)
+            closed = closed_to(key, route)
+            same = next((e for e in payload if e["k"] == kind.value and e["n"] == name), None)
+            if same is not None:
+                same["x"] = same["x"] & closed
+                continue
+            payload.append({"k": kind.value, "n": name, "x": closed})
+        for entry in payload:
+            if entry["x"]:
+                entry["x"] = format(entry["x"], "x")
+            else:
+                del entry["x"]
         return payload
+
+    def cost_modifiers(record) -> list[dict]:
+        """Conditional cost factors: ``f`` the factor, ``w`` what it applies under."""
+        payload = []
+        for modifier in record.cost_modifiers:
+            factor = modifier.scalar_text("factor")
+            try:
+                value = float(factor) if factor is not None else None
+            except ValueError:
+                value = None
+            if value is None:
+                continue
+            payload.append({"f": value, "w": cost_condition(modifier)})
+        return payload
+
+    def cost_condition(block: Block, joiner: str = " and ") -> str:
+        """A cost modifier's conditions, in words.
+
+        Only what the corpus uses is named: resolutions in force, researched
+        technologies. A resolution implies Galactic Community membership, so
+        that test is not repeated.
+        """
+        parts: list[str] = []
+        unnamed = False
+        for pair in block.pairs():
+            value = pair.value
+            if pair.key in ("factor", "add", "is_galactic_community_member"):
+                continue
+            if pair.key == "is_active_resolution" and not isinstance(value, Block):
+                parts.append(f"“{localisation.get(value.value) or value.value}” in force")
+            elif pair.key == "has_technology" and not isinstance(value, Block):
+                parts.append(f"{localisation.name(value.value)} researched")
+            elif pair.key == "OR" and isinstance(value, Block):
+                parts.append(cost_condition(value, " or "))
+            else:
+                unnamed = True
+        if unnamed:
+            parts.append("other conditions")
+        return joiner.join(parts)
 
     def starting_conditions(record) -> list[str]:
         """Named conditions in ``starting_potential``, for "Starting technology for ..."."""
@@ -532,6 +608,9 @@ def emit(
         starting = starting_conditions(record) if record.start_tech else []
         if starting:
             entry["st"] = starting
+        modifiers = cost_modifiers(record)
+        if modifiers:
+            entry["cm"] = modifiers
         details[key] = entry
         # A variant slot opens under its swap's name, and its description is
         # the one its empires read.
