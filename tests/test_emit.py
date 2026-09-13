@@ -184,3 +184,15 @@ def test_profiles_travel_with_the_dataset(emitted):
     vat = details["giga_tech_the_vat"]["ap"]
     mechromancy = next(c for gate in vat for alt in gate["a"] for c in alt if c["n"] == "Mechromancy")
     assert int(mechromancy["x"], 16) & (1 << profiles.index("regular"))
+
+
+@pytest.mark.corpus
+def test_a_badge_follows_the_routes_a_profile_can_take(emitted):
+    """A nomad reaches Tetradimensional Engineering through the Blokkat Bureau, not Constructs."""
+    _, dataset, _ = emitted
+    profiles = [p["k"] for p in dataset["profiles"]]
+    nomad = 1 << profiles.index("regular-nomadic")
+    tetra = next(n for n in dataset["nodes"] if n["k"] == "giga_tech_tetradimensional_engineering")
+    assert tetra.get("pb", -1) >= 0
+    under_nomads = next(b for b in tetra["bv"] if int(b["m"], 16) & nomad)
+    assert "pb" not in under_nomads

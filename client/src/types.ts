@@ -59,6 +59,9 @@ export interface RawNode {
   /** Hex mask over `dataset.profiles`: where this slot is not shown. */
   hp?: string;
   pv?: RawPresentation[];
+  /** Badges that differ under some profiles: `pb` absent for no badge, `pi` 1
+   *  when the badge's gate is inherited. */
+  bv?: { m: string; pb?: number; pi: number }[];
 }
 
 export interface RawRow {
@@ -106,6 +109,12 @@ export interface RawDataset {
   /** `[sourceNodeIndex, targetNodeIndex, edgeKind]`, indices into `nodes`, for
    *  the all-empires view. */
   edges: [number, number, number][];
+}
+
+export interface Badge {
+  mask: bigint;
+  perkBadge?: number;
+  perkInherited: boolean;
 }
 
 export interface Presentation {
@@ -159,6 +168,8 @@ export interface TechNode {
   /** How the slot is presented with no profile chosen. */
   base: Presentation;
   presentations: Presentation[];
+  baseBadge: Badge;
+  badges: Badge[];
   /** Indices of nodes this one depends on, in the current view. */
   incoming: number[];
   /** Indices of nodes that depend on this one, in the current view. */
@@ -229,6 +240,8 @@ export function expand(raw: RawDataset): Dataset {
         icon: p.ic,
         swap: p.sw,
       })),
+      baseBadge: { mask: 0n, perkBadge: node.pb, perkInherited: flags(node, "perk-inherited") },
+      badges: (node.bv ?? []).map((b) => ({ mask: mask(b.m), perkBadge: b.pb, perkInherited: b.pi === 1 })),
       incoming: [],
       outgoing: [],
     };
@@ -280,6 +293,10 @@ export function applyProfile(data: Dataset, profile: number | null): void {
     node.name = presentation.name;
     node.icon = presentation.icon;
     node.swap = presentation.swap;
+    const badge =
+      (profile === null ? undefined : node.badges.find((b) => (b.mask & bit) !== 0n)) ?? node.baseBadge;
+    node.perkBadge = badge.perkBadge;
+    node.perkInherited = badge.perkInherited;
   }
 
   let edges: [number, number, number][];

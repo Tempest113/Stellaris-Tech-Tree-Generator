@@ -68,6 +68,13 @@ def test_what_a_profile_leaves_open_is_unknown_and_hides_nothing():
     assert _trigger("NOT = { has_country_flag = anything }", regular) is TV.UNKNOWN
 
 
+def test_a_flag_nothing_names_is_never_set():
+    defs = _definitions()
+    defs.flag_words = frozenset({"set_somewhere"})
+    assert _trigger("has_country_flag = set_somewhere", Profile("regular"), defs) is TV.UNKNOWN
+    assert _trigger("has_country_flag = never_named", Profile("regular"), defs) is TV.FALSE
+
+
 def test_all_dlc_is_owned():
     assert _trigger("has_biogenesis_dlc = yes", Profile("regular")) is TV.TRUE
     assert _trigger("has_ancrel = no", Profile("regular"), _definitions(triggers="has_ancrel = { host_has_dlc = x }")) is TV.FALSE
@@ -135,7 +142,9 @@ def built(install, gigas_root: Path):
     assignment = rows_mod.assign(extraction, graph, rows_mod.load_config(rows_mod.DEFAULT_ROWS_CONFIG))
     layout = layout_mod.build(graph, assignment)
     slots = sorted(layout.slots, key=lambda s: (s.row.area, s.row.category, s.column, s.cell_index))
-    views = compute_views(graph, slots, extraction.profile_definitions, extraction.profiles)
+    views = compute_views(
+        graph, slots, extraction.profile_definitions, extraction.profiles, extraction.unlock_routes
+    )
     return extraction, slots, views
 
 
@@ -228,3 +237,25 @@ def test_nomad_only_technologies_are_hidden_from_settled_empires(built):
     arkship = views.technology_hidden["tech_arkship_construction"]
     assert arkship & _bit(extraction, "regular")
     assert not arkship & _bit(extraction, "regular-nomadic")
+
+
+@pytest.mark.corpus
+def test_a_flag_nothing_sets_settles_ring_segment(built):
+    """``giga_one_planet_origin`` is a hook for other mods; in this load order nobody sets it."""
+    extraction, slots, views = built
+    ring = {s.swap: i for i, s in enumerate(slots) if s.technology == "tech_ring_world"}
+    settled = _bit(extraction, "regular")
+    assert not views.hidden[ring[None]] & settled
+    assert views.hidden[ring["giga_tech_ring_world_swap_no_habitables"]] & settled
+    nomad = _bit(extraction, "regular-nomadic")
+    assert views.hidden[ring[None]] & nomad
+    assert not views.hidden[ring["giga_tech_ring_world_swap_no_habitables"]] & nomad
+
+
+@pytest.mark.corpus
+def test_a_technology_only_a_perk_hands_out_is_gone_without_the_perk(built):
+    """The Birch World comes only from Vast Expanses, which no nomad can take."""
+    extraction, _, views = built
+    birch = views.technology_hidden["giga_tech_birch_world_1"]
+    assert birch & _bit(extraction, "regular-nomadic")
+    assert not birch & _bit(extraction, "regular")

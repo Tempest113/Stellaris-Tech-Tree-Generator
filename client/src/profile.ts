@@ -3,7 +3,8 @@
  *
  * An authority and a handful of toggles. Only combinations an empire can
  * actually be created as are offered -- the dataset lists them -- so the picker
- * never lands on a tree nobody gets. Turning a toggle on that needs others
+ * never lands on a tree nobody gets, and a toggle that cannot change for the
+ * chosen authority is not shown at all. Turning a toggle on that needs others
  * (Wilderness needs a hive mind with bio-ships, and rules out Nomadic) moves the
  * rest to the nearest combination that allows it, and says what else changed.
  */
@@ -122,11 +123,11 @@ export function mountProfilePicker(
       button.className = on ? "toggle on" : "toggle";
       button.setAttribute("aria-pressed", String(on));
       const authority = state.authority;
+      // Only toggles that can change for this authority are offered: a
+      // Machine Intelligence has no Machine Species toggle to flip.
       const reachable =
         authority !== null && profiles.some((p) => p.a === authority && p.t.includes(name) !== on);
-      button.disabled = !reachable;
-      if (authority === null) button.title = "Choose an authority first";
-      else if (!reachable) button.title = `Not possible for this authority`;
+      if (!reachable) continue;
       button.addEventListener("click", () => {
         if (authority === null) return;
         const previous = new Set(state.toggles);

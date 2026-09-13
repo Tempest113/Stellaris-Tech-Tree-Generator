@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -189,7 +189,7 @@ def emit(
     nodes = []
     profiles: list[frozenset[str]] = []
     views = profiles_mod.compute_views(
-        graph, slots, extraction.profile_definitions, extraction.profiles
+        graph, slots, extraction.profile_definitions, extraction.profiles, extraction.unlock_routes
     )
 
     def presentation(record: TechnologyRecord, swap) -> tuple[str, str]:
@@ -308,14 +308,51 @@ def emit(
     def perk_icon(perk: str) -> int:
         return slot_stems.get(perk_icons.get(perk, ""), -1)
 
-    # The card badge: one perk, from the strongest gate with perk art.
-    # Declared before inherited, so a card never names a gate it merely passes
-    # along when it has one of its own.
+    def badge(key: str, bit: int | None) -> tuple[int | None, bool]:
+        """The card badge -- atlas slot or None, and whether inherited -- for a profile.
+
+        One perk, from the strongest gate with perk art. Declared before
+        inherited, so a card never names a gate it merely passes along when it
+        has one of its own. Under a profile, a route it cannot take is no
+        badge: a nomad's Tetradimensional Engineering comes through the Blokkat
+        Bureau, not Gigastructural Constructs.
+        """
+        gates = all_gates.get(key, ())
+        if bit is not None:
+            ev = views.evaluators[bit]
+            kept = []
+            for gate in gates:
+                alternatives = tuple(
+                    alternative
+                    for alternative in gate.alternatives
+                    if not any(
+                        profiles_mod.condition_truth(ev, c, levels) is profiles_mod.TV.FALSE
+                        for c in alternative
+                    )
+                )
+                if alternatives:
+                    kept.append(replace(gate, alternatives=alternatives))
+            gates = tuple(kept)
+        strongest = gates_mod.strongest(gates, levels)
+        perks = gates_mod.badge_perks(strongest, levels) if strongest is not None else ()
+        if not perks:
+            return None, False
+        return next((s for s in map(perk_icon, perks) if s >= 0), -1), strongest.is_inherited
+
     for node in nodes:
-        badge = gates_mod.strongest(all_gates.get(node["k"], ()), levels)
-        perks = gates_mod.badge_perks(badge, levels) if badge is not None else ()
-        if perks:
-            node["pb"] = next((s for s in map(perk_icon, perks) if s >= 0), -1)
+        default = badge(node["k"], None)
+        if default[0] is not None:
+            node["pb"] = default[0]
+        differs: dict[tuple[int | None, bool], int] = {}
+        for bit in range(len(extraction.profiles)):
+            found = badge(node["k"], bit)
+            if found != default:
+                differs[found] = differs.get(found, 0) | (1 << bit)
+        if differs:
+            node["bv"] = [
+                {"m": format(mask, "x"), **({"pb": slot} if slot is not None else {}), "pi": int(inherited)}
+                for (slot, inherited), mask in sorted(differs.items(), key=lambda kv: kv[1])
+            ]
 
     edges = wire_edges(graph, slots, profiles)
 

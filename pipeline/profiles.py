@@ -29,6 +29,11 @@ route is ``FALSE`` and only Genetic Ascension remains.
 
 All DLC is assumed owned: ``has_*_dlc`` is ``TRUE``.
 
+A country flag nothing in the load order ever names, other than to test it, is
+``FALSE``: nobody sets it. Gigastructures tests ``giga_one_planet_origin`` as a
+hook for one-planet origin mods; without one loaded, Ring Segment's
+no-habitables swap is settled by the profile alone.
+
 Valid combinations
 ------------------
 Not every combination of choices can be made at empire creation, and a profile
@@ -44,6 +49,7 @@ from __future__ import annotations
 
 import enum
 import itertools
+import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -99,7 +105,9 @@ def _or(values: Iterable[TV]) -> TV:
 
 AUTHORITIES = ("regular", "hive", "machine")
 AUTHORITY_KEYS = {"hive": "auth_hive_mind", "machine": "auth_machine_intelligence"}
-AUTHORITY_LABELS = {"regular": "Regular", "hive": "Hive Mind", "machine": "Machine Intelligence"}
+#: "Regular" is the game's own word (``is_regular_empire``); a player picks
+#: between individualist, hive and machine empires.
+AUTHORITY_LABELS = {"regular": "Individualist", "hive": "Hive Mind", "machine": "Machine Intelligence"}
 
 GESTALT_ETHIC = "ethic_gestalt_consciousness"
 WILDERNESS_ORIGIN = "origin_wilderness"
@@ -163,6 +171,10 @@ class Definitions:
     regular_authorities: frozenset[str] = frozenset()
     #: The civics ``is_beastmasters_empire`` accepts.
     beastmaster_civics: tuple[str, ...] = ()
+    #: Every word the load order's script uses other than as the flag in a
+    #: ``has_country_flag`` test. A flag outside it is never set. ``None`` when
+    #: unknown, which leaves every flag open.
+    flag_words: frozenset[str] | None = None
 
 
 def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitions:
@@ -209,6 +221,7 @@ def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitio
 
     return Definitions(
         triggers=triggers,
+        flag_words=_flag_words(load_order),
         civics=blocks("common/governments/civics"),
         perks=blocks("common/ascension_perks"),
         traditions=traditions,
@@ -217,6 +230,28 @@ def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitio
         regular_authorities=regular,
         beastmaster_civics=beastmaster_civics,
     )
+
+
+_FLAG_TEST = re.compile(rb"has_country_flag\s*=\s*\"?[A-Za-z0-9_.:-]+")
+_WORD = re.compile(rb"[A-Za-z0-9_.:-]+")
+
+
+def _flag_words(load_order: LoadOrder) -> frozenset[str]:
+    """Words used anywhere in script except as a tested flag.
+
+    Deliberately crude, so it errs towards "set": a flag named in a setter, an
+    inline script parameter, a removal or a comment all count. Overridden files
+    are read too, for the same reason.
+    """
+    words: set[bytes] = set()
+    for source in load_order:
+        for directory in ("common", "events"):
+            root = source.root / directory
+            if not root.is_dir():
+                continue
+            for path in root.rglob("*.txt"):
+                words.update(_WORD.findall(_FLAG_TEST.sub(b" ", path.read_bytes())))
+    return frozenset(w.decode("utf-8", "replace") for w in words)
 
 
 def _pairs_deep(block: Block):
@@ -365,6 +400,8 @@ class Evaluator:
             return _truth(not asserted)
         if lowered == "host_has_dlc" or (lowered.startswith("has_") and lowered.endswith("_dlc")):
             return polar(TV.TRUE) if yes_no else TV.TRUE
+        if lowered == "has_country_flag" and self.defs.flag_words is not None:
+            return TV.UNKNOWN if text in self.defs.flag_words else TV.FALSE
         if lowered == "is_nomadic" and yes_no:
             return polar(_truth(self.profile.nomadic))
         if lowered == "uses_ship_category":
@@ -637,12 +674,13 @@ class Views:
         """Profiles for which a gate condition can never be met."""
         mask = 0
         for bit, ev in enumerate(self.evaluators):
-            if _condition(ev, condition, crisis_levels) is TV.FALSE:
+            if condition_truth(ev, condition, crisis_levels) is TV.FALSE:
                 mask |= 1 << bit
         return mask
 
 
-def _condition(ev: Evaluator, condition, crisis_levels) -> TV:
+def condition_truth(ev: Evaluator, condition, crisis_levels) -> TV:
+    """Whether a gate condition can hold for the evaluator's profile."""
     kind, key = condition.kind, condition.key
     if kind == "perk":
         return ev.available("perk", key)
@@ -660,12 +698,21 @@ def _condition(ev: Evaluator, condition, crisis_levels) -> TV:
     return TV.UNKNOWN
 
 
-def compute_views(graph, slots, definitions: Definitions, profiles: tuple[Profile, ...]) -> Views:
+def compute_views(
+    graph,
+    slots,
+    definitions: Definitions,
+    profiles: tuple[Profile, ...],
+    routes: dict | None = None,
+) -> Views:
     """Which slots each profile shows, and under which name.
 
     A technology is gone for a profile when its ``potential`` is ``FALSE``, or
     when it is ordinary research and some prerequisite it cannot do without is
-    gone: it would never be offered.
+    gone: it would never be offered. A technology the research pool never
+    offers is gone too when every way in is an ascension perk or tradition the
+    profile cannot take: The Birch World comes only from Vast Expanses, which
+    no nomad can have.
 
     Swaps are taken in order and the first whose trigger holds applies, so a
     slot shows when the swap that puts it there *can* be the first to apply. A
@@ -674,8 +721,11 @@ def compute_views(graph, slots, definitions: Definitions, profiles: tuple[Profil
     """
     from .layout import CRISIS_GROUP
 
+    from .unlocks import RouteKind
+
     records = graph.records
     evaluators = tuple(Evaluator(p, definitions) for p in profiles)
+    routes = routes or {}
 
     # Per technology, per profile: does it exist, and how does each swap apply?
     exists: dict[str, int] = {}
@@ -687,6 +737,13 @@ def compute_views(graph, slots, definitions: Definitions, profiles: tuple[Profil
         defaults: list[TV] = []
         for bit, ev in enumerate(evaluators):
             if record.potential is not None and ev.trigger(record.potential) is TV.FALSE:
+                gone |= 1 << bit
+            ways_in = routes.get(key, ()) if record.is_undrawable else ()
+            if ways_in and all(
+                r.kind in (RouteKind.PERK, RouteKind.TRADITION)
+                and ev.available("perk" if r.kind is RouteKind.PERK else "tradition", r.key) is TV.FALSE
+                for r in ways_in
+            ):
                 gone |= 1 << bit
             remaining = TV.TRUE
             outcomes: list[TV] = []
