@@ -61,6 +61,11 @@ force HTTPS refuse the plain dev server, and Copy Link needs a secure page.
 `npm --prefix client run build` writes the deployable static site to
 `client/dist`.
 
+`npm --prefix client test` runs the client tests: layout and per-empire views
+against small fixtures, links, and, once the dataset is built, checks that every
+empire's view and every isolated lineage draws no trace to a hidden card, no
+overlapping cards and no prerequisite to the right of what needs it.
+
 Controls: hover highlights a technology's ancestry and descendants, click pins
 it and opens the detail panel, middle-click (or Isolate in the panel) isolates
 it into a mini-tree, <kbd>/</kbd> searches, <kbd>F</kbd> fits the tree,
