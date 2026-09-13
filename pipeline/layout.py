@@ -1,9 +1,11 @@
 """Assign every technology a row and a column.
 
-The pipeline owns all geometry. The renderer consumes emitted positions and
-never recomputes them from a parallel formula -- when the previous attempt let
-the client re-derive row and band positions, the two drifted and cards drew
-nowhere near their panels.
+The pipeline owns placement: a row, a column, and an order within the cell.
+Pixels are the browser's, in ``client/src/geometry.ts``, because an empire
+profile hides cards and the rest close up around the gaps. There is one formula
+for each, never a parallel copy -- when the previous attempt let both sides
+derive row and band positions, the two drifted and cards drew nowhere near their
+panels.
 
 Horizontal axis
 ---------------

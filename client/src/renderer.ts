@@ -7,8 +7,9 @@
  * the extra machinery buys nothing here and costs a dependency plus a lot of
  * indirection.
  *
- * The renderer never computes geometry. Every position comes from the dataset;
- * what is decided here is only how those positions are drawn.
+ * The renderer never computes geometry. Every position comes from the current
+ * view (see `geometry.ts`); what is decided here is only how those positions
+ * are drawn.
  *
  * Two coordinate spaces, and the rule for which a thing lives in:
  *
@@ -22,6 +23,14 @@
  */
 
 import { Camera } from "./camera";
+import {
+  CARD_HEIGHT,
+  CARD_WIDTH,
+  COLUMN_GAP,
+  ROW_GUTTER,
+  ROW_HEADER,
+  type RowBox,
+} from "./geometry";
 import { AREA_ACCENT, EDGE, FLAG, FONT, HIGHLIGHT, INK, rowAccent, withAlpha } from "./theme";
 import {
   EDGE_ALTERNATIVE,
@@ -30,6 +39,8 @@ import {
   type RawRow,
   type TechNode,
 } from "./types";
+
+const card = { w: CARD_WIDTH, h: CARD_HEIGHT };
 
 /** Zoom thresholds. Below each, that much detail stops being drawn. */
 const LOD_ICON = 0.14;
@@ -88,8 +99,8 @@ export class Renderer {
   private readonly context: CanvasRenderingContext2D;
   private atlas: HTMLImageElement | null = null;
   private readonly hitGrid = new Map<string, number[]>();
-  /** Every resting trace, one path per edge kind, built once. */
-  private readonly idlePaths: Path2D[];
+  /** Every resting trace, one path per edge kind, built once per view. */
+  private idlePaths: Path2D[];
   private dpr = 1;
 
   constructor(
@@ -100,6 +111,12 @@ export class Renderer {
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) throw new Error("canvas 2d context unavailable");
     this.context = context;
+    this.buildHitGrid();
+    this.idlePaths = this.buildPaths(() => true);
+  }
+
+  /** Rebuild what depends on the current view: hit testing and resting traces. */
+  refresh(): void {
     this.buildHitGrid();
     this.idlePaths = this.buildPaths(() => true);
   }
@@ -120,7 +137,6 @@ export class Renderer {
   pick(screenX: number, screenY: number): number | null {
     if (screenY < TIER_HEADER_PX) return null;
     const { x, y } = this.camera.toWorld(screenX, screenY);
-    const { card } = this.data.raw.canvas;
     const bucket = this.hitGrid.get(cellKey(x, y));
     if (!bucket) return null;
     // Later nodes in a cell draw on top, so search backwards.
@@ -160,13 +176,12 @@ export class Renderer {
   /** Alternating stripes, one per tier band, so a band reads as a column. */
   private drawTierColumns(view: Bounds): void {
     const context = this.context;
-    const { height } = this.data.raw.canvas;
-    this.data.raw.bands.forEach((band, index) => {
+    const { height, bands, repeatable } = this.data.view.geometry;
+    bands.forEach((band, index) => {
       if (band.x + band.w < view.x0 || band.x > view.x1) return;
       context.fillStyle = index % 2 ? "rgba(255,255,255,0.038)" : "rgba(255,255,255,0.014)";
       context.fillRect(band.x, 0, band.w, height);
     });
-    const repeatable = this.data.raw.repeatableBand;
     context.fillStyle = withAlpha(FLAG.rare, 0.05);
     context.fillRect(repeatable.x, 0, repeatable.w, height);
   }
@@ -174,13 +189,15 @@ export class Renderer {
   /** Each row as a rounded band washed in its area's colour, with its label. */
   private drawRows(view: Bounds, scale: number): void {
     const context = this.context;
-    const { width, rowGutter } = this.data.raw.canvas;
+    const { width, rows } = this.data.view.geometry;
 
     for (const row of this.data.raw.rows) {
-      if (row.y + row.h < view.y0 || row.y > view.y1) continue;
+      const box = rows[row.i];
+      if (!box?.shown) continue;
+      if (box.y + box.h < view.y0 || box.y > view.y1) continue;
       const accent = rowAccent(row.group, row.key);
-      const top = row.y + 4;
-      const bottom = row.y + row.h - rowGutter / 2;
+      const top = box.y + 4;
+      const bottom = box.y + box.h - ROW_GUTTER / 2;
 
       roundRect(context, BAND_INSET, top, width - 2 * BAND_INSET, bottom - top, BAND_RADIUS);
       context.fillStyle = withAlpha(accent, 0.09);
@@ -189,7 +206,7 @@ export class Renderer {
       context.strokeStyle = withAlpha(accent, 0.22);
       context.stroke();
 
-      this.drawRowLabel(row, accent, scale);
+      this.drawRowLabel(row, box, accent, scale);
     }
   }
 
@@ -202,13 +219,13 @@ export class Renderer {
    * never overlap a card, which a label sized in screen space does as soon as
    * the header shrinks below the text.
    */
-  private drawRowLabel(row: RawRow, accent: string, scale: number): void {
+  private drawRowLabel(row: RawRow, box: RowBox, accent: string, scale: number): void {
     const context = this.context;
     const font = Math.min(ROW_LABEL_MAX_FONT, Math.max(12, ROW_LABEL_SCREEN_PX / scale));
     if (font * scale < MIN_LABEL_PX) return;
 
     const text = row.label.toUpperCase();
-    const count = String(row.n);
+    const count = String(box.count);
     const height = font * 1.6;
     const padding = font * 0.6;
 
@@ -221,7 +238,7 @@ export class Renderer {
     const countWidth = context.measureText(count).width;
 
     const x = BAND_INSET + 12;
-    const y = row.y + (row.header - height) / 2 + 2;
+    const y = box.y + (ROW_HEADER - height) / 2 + 2;
     roundRect(context, x, y, padding * 2 + textWidth + padding + countWidth, height, 4);
     context.fillStyle = withAlpha(INK.background, 0.6);
     context.fill();
@@ -256,14 +273,14 @@ export class Renderer {
     context.fillStyle = INK.line;
     context.fillRect(0, bar - 1, viewWidth, 1);
 
+    const { bands, repeatable } = this.data.view.geometry;
     const entries = [
-      ...this.data.raw.bands.map((b) => ({
-        x: b.x,
-        w: b.w,
+      ...this.data.raw.bands.map((b, index) => ({
+        ...bands[index]!,
         labels: [`TIER ${b.t}`, `T${b.t}`, `${b.t}`],
       })),
       {
-        ...this.data.raw.repeatableBand,
+        ...repeatable,
         labels: ["REPEATABLE", "REPEAT", "R"],
       },
     ];
@@ -348,7 +365,7 @@ export class Renderer {
   /** One path per edge kind, holding every edge the filter keeps. */
   private buildPaths(keep: (source: number, target: number) => boolean): Path2D[] {
     const paths = [new Path2D(), new Path2D(), new Path2D()];
-    for (const [source, target, kind] of this.data.raw.edges) {
+    for (const [source, target, kind] of this.data.view.edges) {
       if (!keep(source, target)) continue;
       const from = this.data.nodes[source];
       const to = this.data.nodes[target];
@@ -367,7 +384,8 @@ export class Renderer {
    * turning point and fanning out.
    */
   private trace(path: Path2D, from: TechNode, to: TechNode): void {
-    const { card, columnX, columnGap } = this.data.raw.canvas;
+    const { columnX } = this.data.view.geometry;
+    const columnGap = COLUMN_GAP;
     const x1 = from.x + card.w;
     const y1 = from.y + card.h / 2;
     const x2 = to.x;
@@ -407,7 +425,6 @@ export class Renderer {
 
   private drawNodes(selection: Selection, view: Bounds, scale: number): void {
     const context = this.context;
-    const { card } = this.data.raw.canvas;
     const active = selection.pinned ?? selection.hovered;
     const showText = scale >= LOD_TEXT;
     const showIcon = scale >= LOD_ICON;
@@ -418,6 +435,7 @@ export class Renderer {
 
     for (let index = 0; index < this.data.nodes.length; index++) {
       const node = this.data.nodes[index]!;
+      if (node.hidden) continue;
       if (selection.isolated && !selection.isolated.has(index)) continue;
       if (node.x + card.w < view.x0 || node.x > view.x1) continue;
       if (node.y + card.h < view.y0 || node.y > view.y1) continue;
@@ -477,7 +495,6 @@ export class Renderer {
 
   private drawCardText(node: TechNode, withIcon: boolean): void {
     const context = this.context;
-    const { card } = this.data.raw.canvas;
     const textX = node.x + (withIcon ? ICON_X + ICON + 10 : 14);
     const right = node.x + card.w - 10;
 
@@ -494,9 +511,11 @@ export class Renderer {
     context.fillText(tier, textX, baseline);
     let cursor = textX + context.measureText(tier).width + 8;
 
-    // The tag says how an undrawable technology arrives; failing that, a
-    // variant says it is one presentation of a technology among several.
-    const flag = node.tag ?? (node.variant ? "Variant" : "");
+    // The tag says how an undrawable technology arrives; failing that, with no
+    // profile chosen, a variant says it is one presentation of a technology
+    // among several. A profile shows only the presentation it gets.
+    const variant = node.variant && this.data.view.profile === null;
+    const flag = node.tag ?? (variant ? "Variant" : "");
     let flagX = right;
     if (flag) {
       context.fillStyle = node.tag ? FLAG.rare : INK.muted;
@@ -563,8 +582,9 @@ export class Renderer {
   }
 
   private buildHitGrid(): void {
-    const { card } = this.data.raw.canvas;
+    this.hitGrid.clear();
     this.data.nodes.forEach((node, index) => {
+      if (node.hidden) return;
       const x0 = Math.floor(node.x / HIT_CELL);
       const x1 = Math.floor((node.x + card.w) / HIT_CELL);
       const y0 = Math.floor(node.y / HIT_CELL);

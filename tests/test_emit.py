@@ -166,3 +166,21 @@ def test_perk_badges_cover_inherited_gates(emitted):
     assert "perk-inherited" in qso["f"]
     assert details["giga_tech_quasi_stellar_4"]["ap"][0]["v"] == "Hyperdimensional Shielding"
     assert by_key["tech_dyson_sphere"].get("pb", -1) >= 0
+
+
+@pytest.mark.corpus
+def test_profiles_travel_with_the_dataset(emitted):
+    """Masks, renames and their descriptions: all the browser needs to show one empire's tree."""
+    _, dataset, details = emitted
+    profiles = [p["k"] for p in dataset["profiles"]]
+    bio = 1 << profiles.index("regular-bio-ships")
+    lasers = next(n for n in dataset["nodes"] if n["k"] == "tech_lasers_1")
+    renamed = next(p for p in lasers["pv"] if p["sw"] == "tech_bio_lasers_1")
+    assert int(renamed["m"], 16) & bio
+    assert renamed["n"] != lasers["n"]
+    assert "tech_bio_lasers_1" in details
+    arkship = next(n for n in dataset["nodes"] if n["k"] == "tech_arkship_construction")
+    assert int(arkship["hp"], 16) & (1 << profiles.index("regular"))
+    vat = details["giga_tech_the_vat"]["ap"]
+    mechromancy = next(c for gate in vat for alt in gate["a"] for c in alt if c["n"] == "Mechromancy")
+    assert int(mechromancy["x"], 16) & (1 << profiles.index("regular"))

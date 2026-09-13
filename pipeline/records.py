@@ -26,13 +26,13 @@ from typing import Iterable, Iterator
 
 from .clausewitz import Block, Scalar
 from .clausewitz.nodes import Node
+from . import profiles as profiles_mod
 from . import unlocks as unlocks_mod
 from .gates import (
     CrisisLevel,
     Gate,
     crisis_levels,
     defined_conditions,
-    is_disabled,
     perk_contexts,
     route_conditions,
     tradition_trees,
@@ -486,6 +486,9 @@ class Extraction:
     tradition_trees: dict[str, str] = field(default_factory=dict)
     #: Crisis level -> the perk whose path it is on, and its place there.
     crisis_levels: dict[str, CrisisLevel] = field(default_factory=dict)
+    #: What profiles are read against, and every profile an empire can be.
+    profile_definitions: profiles_mod.Definitions | None = None
+    profiles: tuple[profiles_mod.Profile, ...] = ()
     #: Technologies whose potential no player can meet. Kept as records, so
     #: anything naming them still resolves, but left out of the tree.
     disabled: frozenset[str] = frozenset()
@@ -605,16 +608,10 @@ def extract(
         flags=flag_conditions,
         defined=defined,
     )
-    extraction.disabled = frozenset(
-        key
-        for key, record in extraction.technologies.items()
-        if is_disabled(
-            record,
-            triggers=triggers,
-            named=frozenset(config.names),
-            flags=flag_conditions,
-            defined=defined,
-        )
+    extraction.profile_definitions = profiles_mod.load_definitions(load_order, triggers)
+    extraction.profiles = profiles_mod.valid_profiles(extraction.profile_definitions)
+    extraction.disabled = profiles_mod.disabled(
+        extraction.technologies, extraction.profile_definitions, extraction.profiles
     )
     extraction.perk_contexts = perk_contexts(load_order)
     extraction.tradition_trees = tradition_trees(load_order)

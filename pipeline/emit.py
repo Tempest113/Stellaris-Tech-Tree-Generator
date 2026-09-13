@@ -1,8 +1,12 @@
 """Emit the dataset the browser loads.
 
-The browser never parses Clausewitz and never computes geometry, so everything
-it needs is baked here: positions, row and band structure, resolved names, and
-an icon atlas.
+The browser never parses Clausewitz or reads a trigger, so everything it needs
+to know about the game is baked here: placement (row, column and order in a
+cell), resolved names, what each empire profile sees, and an icon atlas.
+
+Pixels are the browser's. An empire profile hides cards and the rest close up
+around the gaps, so positions depend on the profile chosen; the one formula
+that turns placement into pixels lives in ``client/src/geometry.ts``.
 
 Two files, because they have different access patterns. ``dataset.json`` holds
 what is needed to draw the tree and is fetched up front. ``details.json`` holds
@@ -23,8 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import gates as gates_mod
+from . import profiles as profiles_mod
 from . import unlocks as unlocks_mod
-from . import geometry as geom
 from .clausewitz import Block, serialize
 from .graph import EdgeKind, TechGraph
 from .icons import IconIndex, load_image
@@ -181,12 +185,29 @@ def emit(
     slots = sorted(layout.slots, key=lambda s: (s.row.area, s.row.category, s.column, s.cell_index))
 
     row_index = {row.key: row.index for row in layout.rows}
-    boxes = geom.build(layout)
     used_icon_stems: list[str] = []
     nodes = []
     profiles: list[frozenset[str]] = []
+    views = profiles_mod.compute_views(
+        graph, slots, extraction.profile_definitions, extraction.profiles
+    )
 
-    for slot in slots:
+    def presentation(record: TechnologyRecord, swap) -> tuple[str, str]:
+        """Name and icon stem of a swap."""
+        name = localisation.get(swap.name) or localisation.name(record.key)
+        icon = (
+            icons.swap(
+                record.key,
+                swap.name,
+                inherit_icon=swap.inherit_icon,
+                declared_icon=record.declared_icon,
+            )
+            if icons
+            else None
+        )
+        return name, icon.stem if icon and icon.stem else ""
+
+    for index, slot in enumerate(slots):
         record = extraction[slot.technology]
         swap = record.swap_named(slot.swap) if slot.swap else None
         profiles.append(slot_profile(record, slot))
@@ -194,21 +215,11 @@ def emit(
         # A variant slot is what its empires actually see, so it wears the
         # swap's name and art rather than the default presentation's.
         if swap is not None:
-            name = localisation.get(swap.name) or localisation.name(slot.technology)
-            icon = (
-                icons.swap(
-                    slot.technology,
-                    swap.name,
-                    inherit_icon=swap.inherit_icon,
-                    declared_icon=record.declared_icon,
-                )
-                if icons
-                else None
-            )
+            name, stem = presentation(record, swap)
         else:
             name = localisation.name(slot.technology)
             icon = record.icon(icons) if icons else None
-        stem = icon.stem if icon and icon.stem else ""
+            stem = icon.stem if icon and icon.stem else ""
         if stem:
             used_icon_stems.append(stem)
 
@@ -232,15 +243,12 @@ def emit(
         if not slot.is_primary:
             flags.append("variant")
 
-        box = boxes.nodes[(slot.technology, row_index[slot.row])]
         node = {
             "k": slot.technology,
             "n": name,
             "r": row_index[slot.row],
             "c": slot.column,
             "i": slot.cell_index,
-            "x": box.x,
-            "y": box.y,
             "t": slot.tier,
             "a": swap.area if swap and swap.area else record.area,
             "g": record.category or "",
@@ -250,6 +258,20 @@ def emit(
             node["sw"] = swap.name
         if flags:
             node["f"] = flags
+        # Profiles, as bits in the order of dataset["profiles"], hex-encoded.
+        if views.hidden[index]:
+            node["hp"] = format(views.hidden[index], "x")
+        swaps_by_name = {s.name: s for s in record.swaps}
+        shown_as = []
+        for swap_name, mask in views.presentations[index]:
+            swap_name_text, swap_stem = presentation(record, swaps_by_name[swap_name])
+            if swap_name_text == name and swap_stem == stem:
+                continue
+            if swap_stem:
+                used_icon_stems.append(swap_stem)
+            shown_as.append({"m": format(mask, "x"), "n": swap_name_text, "ic": swap_stem, "sw": swap_name})
+        if shown_as:
+            node["pv"] = shown_as
         tag = unlocks_mod.tag_for(
             record,
             extraction.unlock_routes.get(slot.technology, ()),
@@ -280,6 +302,8 @@ def emit(
     slot_stems, sheets = build_atlas(icons, used_icon_stems, directory) if icons else ({}, [])
     for node in nodes:
         node["ic"] = slot_stems.get(node["ic"], -1)
+        for shown in node.get("pv", ()):
+            shown["ic"] = slot_stems.get(shown["ic"], -1)
 
     def perk_icon(perk: str) -> int:
         return slot_stems.get(perk_icons.get(perk, ""), -1)
@@ -311,20 +335,20 @@ def emit(
             },
         },
         "atlas": {"sheets": sheets, "cell": CELL, "perRow": PER_ROW, "perSheet": PER_SHEET, "size": SHEET},
-        "canvas": {
-            "width": boxes.width,
-            "height": boxes.height,
-            "card": {"w": geom.CARD_WIDTH, "h": geom.CARD_HEIGHT},
-            "columnPitch": geom.COLUMN_PITCH,
-            # Left edge of every logical column, and the channel before it.
-            # Traces turn in that channel, so edges into one column share a
-            # trunk instead of each picking its own point to turn.
-            "columnX": [boxes.column_x(c) for c in range(layout.columns)],
-            "columnGap": geom.COLUMN_GAP,
-            "rowHeader": geom.ROW_HEADER,
-            "rowGutter": geom.ROW_GUTTER,
-        },
         "edgeKinds": [k.value for k in EDGE_KINDS],
+        # Every empire an empire can be created as. A node's `hp` and a
+        # presentation's `m` are masks over this list, bit 0 first.
+        "profiles": [
+            {
+                "k": p.key,
+                "l": p.label,
+                "a": p.authority,
+                "t": [name for name, _ in profiles_mod.TOGGLES if getattr(p, name)],
+            }
+            for p in extraction.profiles
+        ],
+        "authorities": [[key, profiles_mod.AUTHORITY_LABELS[key]] for key in profiles_mod.AUTHORITIES],
+        "toggles": [list(toggle) for toggle in profiles_mod.TOGGLES],
         "rows": [
             {
                 "i": row.index,
@@ -335,32 +359,10 @@ def emit(
                     if row.is_crisis
                     else localisation.get(row.category) or row.category.replace("_", " ").title()
                 ),
-                "n": row.population,
-                "y": boxes.rows[row.index].y,
-                "h": boxes.rows[row.index].height,
-                "header": geom.ROW_HEADER,
             }
             for row in layout.rows
         ],
-        "bands": [
-            {
-                "t": b.tier,
-                "s": b.start,
-                "e": b.end,
-                "x": boxes.column_x(b.start) - geom.COLUMN_GAP // 2,
-                "w": (
-                    boxes.column_x(b.end)
-                    + boxes.column_widths.get(b.end, geom.CARD_WIDTH)
-                    - boxes.column_x(b.start)
-                    + geom.COLUMN_GAP
-                ),
-            }
-            for b in layout.bands
-        ],
-        "repeatableBand": {
-            "x": boxes.column_x(layout.repeatable_column) - geom.COLUMN_GAP // 2,
-            "w": boxes.column_widths.get(layout.repeatable_column, geom.CARD_WIDTH) + geom.COLUMN_GAP,
-        },
+        "bands": [{"t": b.tier, "s": b.start, "e": b.end} for b in layout.bands],
         "repeatableColumn": layout.repeatable_column,
         "columns": layout.columns,
         "nodes": nodes,
@@ -391,7 +393,18 @@ def emit(
                 context = f"{tree_name} traditions"
         if context:
             entry["c"] = context
+        impossible = views.condition_impossible(condition, levels)
+        if impossible:
+            entry["x"] = impossible
         return entry
+
+    def hex_masks(payload: list[dict]) -> list[dict]:
+        for gate in payload:
+            for alternative in gate["a"]:
+                for condition in alternative:
+                    if "x" in condition:
+                        condition["x"] = format(condition["x"], "x")
+        return payload
 
     def gate_payload(key: str) -> list[dict]:
         """Gates for the detail panel, as groups of alternatives.
@@ -411,10 +424,16 @@ def emit(
                 if names in alternatives:
                     # Same words under another key. Keep whichever ships art:
                     # the DLC-conditional Galactic Wonders keys reuse the base
-                    # perk's.
+                    # perk's. The merged condition is impossible only where
+                    # every key it stands for is.
                     for kept, fresh in zip(alternatives[names], conditions):
                         if "i" not in kept and "i" in fresh:
                             kept["i"] = fresh["i"]
+                        both = kept.get("x", 0) & fresh.get("x", 0)
+                        if both:
+                            kept["x"] = both
+                        else:
+                            kept.pop("x", None)
                     continue
                 alternatives[names] = list({c["n"]: c for c in conditions}.values())
             entry = {"k": gate.kind.value, "a": list(alternatives.values())}
@@ -462,7 +481,7 @@ def emit(
             "p": [list(group.options) for group in record.prerequisites],
         }
         # Each of these is empty for most technologies; omitted to keep the file small.
-        gates = gate_payload(key)
+        gates = hex_masks(gate_payload(key))
         if gates:
             entry["ap"] = gates
         technology_routes = route_payload(key)
@@ -474,11 +493,15 @@ def emit(
         details[key] = entry
         # A variant slot opens under its swap's name, and its description is
         # the one its empires read.
-        if "sw" in node:
-            details[node["sw"]] = {
-                **entry,
-                "d": localisation.description(node["sw"]) or entry["d"],
-            }
+        # A slot presented as a swap opens under the swap's name, and its
+        # description is the one its empires read. A swap sharing its
+        # technology's name keeps the technology's entry.
+        for swap_name in [node.get("sw"), *(p["sw"] for p in node.get("pv", ()))]:
+            if swap_name and swap_name != key and swap_name not in details:
+                details[swap_name] = {
+                    **entry,
+                    "d": localisation.description(swap_name) or entry["d"],
+                }
 
     files: dict[str, int] = {}
     for name, payload in (("dataset.json", dataset), ("details.json", details)):

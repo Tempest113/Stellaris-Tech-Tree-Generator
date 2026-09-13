@@ -20,7 +20,8 @@ export class Camera {
   maxScale = 2;
 
   constructor(
-    private readonly content: { width: number; height: number },
+    /** The size of what is shown, which changes with the view. */
+    private readonly size: () => { width: number; height: number },
     private viewport: Viewport,
     /** Screen pixels at the top covered by a fixed header, kept clear by `fit`. */
     private readonly topInset = 0,
@@ -33,12 +34,13 @@ export class Camera {
 
   /** Fit the whole tree on screen, below the header. */
   fit(): void {
+    const content = this.size();
     const height = this.viewport.height - this.topInset;
-    const sx = this.viewport.width / this.content.width;
-    const sy = height / this.content.height;
+    const sx = this.viewport.width / content.width;
+    const sy = height / content.height;
     this.scale = Math.max(this.minScale, Math.min(sx, sy) * 0.98);
-    this.x = (this.viewport.width - this.content.width * this.scale) / 2;
-    this.y = this.topInset + (height - this.content.height * this.scale) / 2;
+    this.x = (this.viewport.width - content.width * this.scale) / 2;
+    this.y = this.topInset + (height - content.height * this.scale) / 2;
   }
 
   panBy(dx: number, dy: number): void {
@@ -84,12 +86,14 @@ export class Camera {
     };
   }
 
-  private clamp(): void {
+  /** Re-apply the pan limits, after what is shown has changed size. */
+  clamp(): void {
     // Always leave a screen-third of content in view, in both directions.
     const slackX = this.viewport.width / 3;
     const slackY = this.viewport.height / 3;
-    const scaledWidth = this.content.width * this.scale;
-    const scaledHeight = this.content.height * this.scale;
+    const content = this.size();
+    const scaledWidth = content.width * this.scale;
+    const scaledHeight = content.height * this.scale;
 
     this.x = Math.min(slackX, Math.max(this.viewport.width - scaledWidth - slackX, this.x));
     this.y = Math.min(slackY, Math.max(this.viewport.height - scaledHeight - slackY, this.y));

@@ -30,8 +30,8 @@ Gigastructures disables obsolete technologies with it. ``is_ai = yes`` is anothe
 is what lets ``has_gigastructural_constructs`` -- "an AI with an override flag,
 or the perk" -- still reduce to the perk. The other is a condition naming a perk,
 tradition, origin, civic or crisis level the load order never defines; see
-:data:`DEFINITION_DIRS`. A technology whose ``potential`` is false outright is
-not in the tree at all: see :func:`is_disabled`.
+:data:`DEFINITION_DIRS`. A technology no empire can ever meet the potential of
+is not in the tree at all: see :func:`pipeline.profiles.disabled`.
 
 A country flag is resolved through whatever sets it. The planet-killer
 technologies test ``has_country_flag = colossus_project``, and the only thing
@@ -414,30 +414,6 @@ def gates_for(
             add(group, GateKind.UNDRAWABLE, via)
 
     return tuple(gates)
-
-
-def is_disabled(
-    record,
-    *,
-    triggers: TriggerIndex | None = None,
-    named: frozenset[str] = frozenset(),
-    flags: Callable[[str], tuple[Condition, ...] | None] | None = None,
-    defined: dict[str, frozenset[str]] | None = None,
-) -> bool:
-    """Whether no player can ever meet ``record``'s ``potential``.
-
-    Gigastructures retires technologies by writing ``always = no`` into their
-    potential and leaving them defined: ``giga_tech_aeternite_weaponry``, the
-    Stellar Ring and Interstellar Ring Worlds among them. Such a technology does
-    not exist for anyone, so it has no card.
-    """
-    if record.potential is None:
-        return False
-    ctx = _Context(triggers=triggers, named=frozenset(named), flags=flags, defined=defined)
-    return any(
-        _evaluate_item(item, ctx, negated=False, depth=0, seen=frozenset()) is Truth.FALSE
-        for item in record.potential.items
-    )
 
 
 def route_conditions(

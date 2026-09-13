@@ -10,14 +10,16 @@ different tree.
 
 ## How it works
 
-Three stages, strictly separated. The browser never parses Clausewitz script and
-never computes geometry.
+Three stages, strictly separated. The browser never parses Clausewitz script or
+reads a trigger: everything it knows about the game, including what each empire
+profile sees, is decided in Python. It only turns placement into pixels, because
+a profile hides cards and the rest close up around the gaps.
 
 | Stage | Runs | Produces |
 | --- | --- | --- |
 | Extract | Python, locally | Canonical expanded technology records, localisation, icons |
-| Compute | Python, locally | Graph, ascension perk gates, layout, geometry |
-| Render | TypeScript, browser | The page |
+| Compute | Python, locally | Graph, ascension perk gates, empire profiles, layout |
+| Render | TypeScript, browser | Geometry for the chosen profile, and the page |
 
 Vanilla game data cannot be redistributed, so CI cannot build the dataset. The
 dataset is built locally, published as a release artifact, and deployed from

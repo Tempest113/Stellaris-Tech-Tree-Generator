@@ -29,7 +29,7 @@ GATED_COUNT = 114
 #: Of those, gated by at least one ascension perk.
 PERK_GATED_COUNT = 91
 #: Technologies with no gate of their own that inherit one through what they need.
-INHERITED_ONLY_COUNT = 51
+INHERITED_ONLY_COUNT = 43
 
 
 def perk(key: str) -> Condition:
@@ -186,15 +186,6 @@ def test_a_flag_is_gated_by_whatever_sets_it():
     setters = {"colossus_project": (perk("ap_colossus"),)}
     gates = _gates("potential = { has_country_flag = colossus_project }", flags=setters.get)
     assert [g.alternatives for g in gates] == [one(perk("ap_colossus"))]
-
-
-def test_always_no_disables_a_technology():
-    from pipeline.gates import is_disabled
-
-    assert is_disabled(_record("potential = { always = no has_ascension_perk = ap_x }"))
-    assert is_disabled(_record("potential = { is_ai = yes }"))
-    assert not is_disabled(_record("potential = { OR = { always = no has_ascension_perk = ap_x } }"))
-    assert not is_disabled(_record("potential = { always = yes }"))
 
 
 def test_a_named_flag_is_kept_as_a_condition():
@@ -466,21 +457,6 @@ def test_every_badged_perk_has_art(built, effective):
         and not any(icons.ascension_perk(p).is_exact for p in perks)
     ]
     assert blind == []
-
-
-@pytest.mark.corpus
-def test_retired_and_absent_mod_technologies_are_disabled(built):
-    """``has_acot`` is Gigastructures' ``always = no`` stub until ACOT overrides it."""
-    assert built.disabled == {
-        "giga_tech_aeternite_weaponry",
-        "giga_tech_amb_supertensiles_acot_alpha",
-        "giga_tech_amb_supertensiles_acot_delta",
-        "giga_tech_amb_supertensiles_acot_phanon",
-        "giga_tech_amb_supertensiles_acot_sigma",
-        "giga_tech_interstellar_ringworld",
-        "giga_tech_orbital_elysium",
-        "giga_tech_stellar_ring_habitat",
-    }
 
 
 @pytest.mark.corpus

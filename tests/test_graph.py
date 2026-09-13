@@ -12,17 +12,20 @@ from pipeline.graph import Edge, EdgeKind, GraphCycleError, TechGraph, find_tech
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import extract
 
-#: 978 technologies, less eight whose potential no player can meet: four
-#: Gigastructures retired with `always = no`, and four ACOT compatibility
-#: technologies behind `has_acot`, which is `always = no` without ACOT.
-NODE_COUNT = 970
-PREREQUISITE_EDGES = 868
+#: 978 technologies, less seventeen whose potential no empire can meet: four
+#: Gigastructures retired with `always = no`, four ACOT compatibility
+#: technologies behind `has_acot` (`always = no` without ACOT), eight behind the
+#: Frame World origin Gigastructures disabled for 4.0, and the Archaeology Lab
+#: that only exists without Ancient Relics.
+NODE_COUNT = 961
+PREREQUISITE_EDGES = 862
 ALTERNATIVE_EDGES = 76
 #: Gates surviving the scope filter. The corpus holds 27 raw ``has_technology``
 #: references inside ``potential``; 6 of them sit under ``any_country`` or
 #: ``count_country`` in the E.H.O.F. sentient metal chain and describe the state
-#: of the galaxy rather than a dependency, and a 7th is a self-reference.
-POTENTIAL_GATE_EDGES = 21
+#: of the galaxy rather than a dependency, and a 7th is a self-reference. Four
+#: more belong to the disabled Frame World technologies.
+POTENTIAL_GATE_EDGES = 17
 
 @pytest.fixture(scope="module")
 def built(install, gigas_root: Path):

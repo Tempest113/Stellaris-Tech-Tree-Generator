@@ -40,7 +40,6 @@ TAG_COUNTS = {
     "Situation": 7,
     "Guardian": 2,
     "First Contact": 4,
-    "Unobtainable": 4,
     "Event": 5,
     "Enclave": 2,
     "Aeternum Bureau": 2,
@@ -387,7 +386,6 @@ def test_inferred_tags_for_representative_routes(built):
         "tech_prescient_data_modeling": "Caravaneers",
         "null_void_beam": "Special Project",
         "tech_space_cloud_weapon_1": "Debris",
-        "tech_frameworld_defensive_station_2": "Unobtainable",
     }
     assert {key: _tag(built, key) for key in expected} == expected
 

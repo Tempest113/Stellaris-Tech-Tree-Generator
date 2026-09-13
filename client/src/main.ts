@@ -8,8 +8,16 @@
  */
 
 import { Camera } from "./camera";
-import { Renderer, TIER_HEADER_PX, emptySelection } from "./renderer";
-import { expand, type Dataset, type RawDataset } from "./types";
+import { mountProfilePicker } from "./profile";
+import { Renderer, emptySelection } from "./renderer";
+import {
+  applyProfile,
+  expand,
+  mask,
+  profileBit,
+  type Dataset,
+  type RawDataset,
+} from "./types";
 
 const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 12;
@@ -25,15 +33,29 @@ async function main(): Promise<void> {
   const canvas = document.getElementById("tree") as HTMLCanvasElement;
   const status = document.getElementById("status") as HTMLElement;
   const panel = document.getElementById("panel") as HTMLElement;
+  const profileBar = document.getElementById("profile") as HTMLElement;
 
   status.textContent = "Loading dataset…";
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
   const data = expand(raw);
 
+  const picker = mountProfilePicker(profileBar, raw, (profile) => {
+    applyProfile(data, profile);
+    renderer.refresh();
+    selection.isolated = null;
+    selection.pinned = null;
+    select(null, true);
+    camera.clamp();
+    showStatus();
+    schedule();
+  });
+  if (picker.current !== null) applyProfile(data, picker.current);
+
+  // Fitting keeps the tree clear of the tier header and the profile bar below it.
   const camera = new Camera(
-    raw.canvas,
+    () => data.view.geometry,
     { width: canvas.clientWidth, height: canvas.clientHeight },
-    TIER_HEADER_PX,
+    profileBar.getBoundingClientRect().bottom + 8,
   );
   const renderer = new Renderer(canvas, data, camera);
   renderer.resize();
@@ -68,18 +90,24 @@ async function main(): Promise<void> {
     });
   };
 
-  const counts = raw.meta.counts;
   const sources = raw.meta.sources.map((s) => `${s.name}${s.version ? ` ${s.version}` : ""}`);
-  status.textContent =
-    `${counts.technologies} technologies · ${counts.edges} dependencies · ` +
-    `${counts.rows} rows · ${sources.join(" + ")}`;
+  function showStatus(): void {
+    const visible = data.nodes.filter((node) => !node.hidden);
+    const technologies = new Set(visible.map((node) => node.key)).size;
+    const rows = data.view.geometry.rows.filter((row) => row.shown).length;
+    const profile = data.view.profile === null ? "All empires" : raw.profiles[data.view.profile]!.l;
+    status.textContent =
+      `${profile} · ${technologies} technologies · ${data.view.edges.length} dependencies · ` +
+      `${rows} rows · ${sources.join(" + ")}`;
+  }
+  showStatus();
 
   // -- selection ---------------------------------------------------------
 
   function relatives(index: number): { ancestors: Set<number>; descendants: Set<number> } {
-    // Walk every slot sharing the technology key, so a relocated variant lights
-    // up together with its primary.
-    const seeds = data.byKey.get(data.nodes[index]!.key) ?? [index];
+    // Walk every visible slot sharing the technology key, so a relocated variant
+    // lights up together with its primary.
+    const seeds = siblings(index);
     return {
       ancestors: walk(data, seeds, "incoming"),
       descendants: walk(data, seeds, "outgoing"),
@@ -115,7 +143,7 @@ async function main(): Promise<void> {
     } else {
       const { ancestors, descendants } = relatives(index);
       const keep = new Set<number>([index, ...ancestors, ...descendants]);
-      for (const sibling of data.byKey.get(data.nodes[index]!.key) ?? []) keep.add(sibling);
+      for (const sibling of siblings(index)) keep.add(sibling);
       selection.isolated = keep;
       selection.pinned = index;
       selection.ancestors = ancestors;
@@ -127,8 +155,14 @@ async function main(): Promise<void> {
 
   // -- detail panel ------------------------------------------------------
 
-  /** One condition in a gate: a perk, tradition, origin, civic, crisis level, named trigger or flag. */
-  type Condition = { n: string; t: string; i?: number; c?: string };
+  /** Visible slots sharing a node's technology. */
+  function siblings(index: number): number[] {
+    return (data.byKey.get(data.nodes[index]!.key) ?? [index]).filter((i) => !data.nodes[i]!.hidden);
+  }
+
+  /** One condition in a gate: a perk, tradition, origin, civic, crisis level,
+   *  named trigger or flag. `x` masks the profiles for which it can never be met. */
+  type Condition = { n: string; t: string; i?: number; c?: string; x?: string };
   /**
    * `ap` is a conjunction of gates. Within a gate, `a` lists alternatives; each
    * alternative is conditions that must hold together. `v` names the
@@ -153,16 +187,19 @@ async function main(): Promise<void> {
     }
     // A variant slot's details are its swap's: its own name and description.
     const detail = details?.[node.swap ?? node.key] ?? details?.[node.key];
+    const gates = forProfile(detail?.ap);
     const rowLabel = raw.rows[node.row]?.label ?? "";
+    // A prerequisite option the profile never gets is no way in for it.
     const prereqs = (detail?.p ?? [])
+      .map((group) => group.filter((key) => (data.byKey.get(key) ?? []).some((i) => !data.nodes[i]!.hidden)))
+      .filter((group) => group.length > 0)
       .map((group) => group.map(nameOf).join(" <em>or</em> "))
       .map((line) => `<li>${line}</li>`)
       .join("");
     // Across every slot of the technology, since a dependent without a variant
     // of its own is wired to the primary slot only. One entry per name, so a
     // dependent with several presentations is not listed once per slot.
-    const siblings = data.byKey.get(node.key) ?? [index];
-    const outgoing = siblings.flatMap((i) => data.nodes[i]!.outgoing);
+    const outgoing = siblings(index).flatMap((i) => data.nodes[i]!.outgoing);
     const dependents = [...new Set(outgoing.map((i) => data.nodes[i]!.name))]
       .slice(0, 24)
       .map((name) => `<li>${escapeHtml(name)}</li>`)
@@ -179,13 +216,13 @@ async function main(): Promise<void> {
       <p class="flags">
         ${node.dangerous ? '<span class="flag danger">Dangerous</span>' : ""}
         ${node.rare ? '<span class="flag rare">Rare</span>' : ""}
-        ${gateFlag(detail?.ap)}
+        ${gateFlag(gates)}
         ${tagFlag(node.tag, detail?.st)}
-        ${node.variant ? '<span class="flag">Variant for Some Empires</span>' : ""}
+        ${node.variant && data.view.profile === null ? '<span class="flag">Variant for Some Empires</span>' : ""}
         ${node.spilled ? '<span class="flag">Placed Past Its Tier Band</span>' : ""}
       </p>
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
-      ${gateSection(detail?.ap)}
+      ${gateSection(gates)}
       ${routeSection(detail?.u, node.tag)}
       <h3>Prerequisites ${prereqs ? "" : "<span class='none'>none</span>"}</h3>
       <ul>${prereqs}</ul>
@@ -204,6 +241,25 @@ async function main(): Promise<void> {
 
   function hidePanel(): void {
     panel.hidden = true;
+  }
+
+  /**
+   * The gates as the current profile meets them.
+   *
+   * An alternative needing something the profile can never have is dropped:
+   * a biological empire's Vat reads "Galactic Wonders and Genetic Ascension",
+   * with no Mechromancy line.
+   */
+  function forProfile(gates: Gate[] | undefined): Gate[] | undefined {
+    const profile = data.view.profile;
+    if (!gates || profile === null) return gates;
+    const bit = profileBit(profile);
+    return gates
+      .map((gate) => ({
+        ...gate,
+        a: gate.a.filter((alternative) => alternative.every((c) => (mask(c.x) & bit) === 0n)),
+      }))
+      .filter((gate) => gate.a.length > 0);
   }
 
   /** A gate as plain text: alternatives joined by "or", conditions by "+". */
@@ -372,8 +428,9 @@ async function main(): Promise<void> {
   }
 
   function nameOf(key: string): string {
-    const indices = data.byKey.get(key);
-    const node = indices ? data.nodes[indices[0]!] : undefined;
+    const indices = data.byKey.get(key) ?? [];
+    const index = indices.find((i) => !data.nodes[i]!.hidden) ?? indices[0];
+    const node = index === undefined ? undefined : data.nodes[index];
     return escapeHtml(node?.name ?? key);
   }
 
@@ -504,7 +561,7 @@ function walk(data: Dataset, seeds: number[], direction: "incoming" | "outgoing"
       seen.add(next);
       queue.push(next);
       for (const sibling of data.byKey.get(data.nodes[next]!.key) ?? []) {
-        if (!seen.has(sibling)) seen.add(sibling);
+        if (!seen.has(sibling) && !data.nodes[sibling]!.hidden) seen.add(sibling);
       }
     }
   }

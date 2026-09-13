@@ -57,6 +57,38 @@
         max-width: calc(100vw - 24px);
       }
 
+      #profile {
+        position: fixed;
+        left: 12px;
+        top: 38px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        max-width: calc(100vw - 24px);
+        padding: 6px;
+        background: rgba(10, 12, 16, 0.85);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font: 600 12px var(--display);
+      }
+      #profile select,
+      #profile .toggle {
+        height: 28px;
+        padding: 0 10px;
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font: inherit;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      #profile .toggle { color: var(--dim); }
+      #profile .toggle.on { color: var(--ink); border-color: var(--rare); background: #2a2238; }
+      #profile .toggle:disabled { opacity: 0.35; cursor: not-allowed; }
+      #profile .note { padding: 0 6px; color: var(--dim); font-weight: 500; }
+
       #help {
         position: fixed;
         right: 12px;
@@ -185,6 +217,7 @@
   </head>
   <body>
     <canvas id="tree"></canvas>
+    <div id="profile" role="group" aria-label="Empire profile"></div>
     <div id="status">Loading…</div>
     <div id="help">
       hover: highlight &middot; click: pin &middot; middle-click: isolate &middot;

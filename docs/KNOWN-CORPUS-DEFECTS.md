@@ -124,6 +124,13 @@ research pool never offers them, and the only effects that grant them --
 one per starbase tier via `last_increased_tech` -- are commented out in full.
 Nothing else in the load order hands them out.
 
-**Handling:** tagged "Unobtainable" by manual override in `config/unlocks.toml`.
-If the events are restored upstream, delete the four overrides; the build will
-then trace them as research unlocks on its own.
+The events are moot at the pinned commit anyway: Gigastructures disabled the
+Frame World origin itself for 4.0 (`possible = { always = no }` in
+`common/governments/civics/frameworld_origins.txt`), and all eight Frame World
+technologies require it.
+
+**Handling:** none needed. No empire profile can have the origin, so the
+technologies are disabled and have no card (see `pipeline/profiles.py`). If the
+origin is restored upstream they reappear, and these four are then worth
+checking again: the build would trace them as research unlocks if the events
+come back, and tag them "Unknown" if not.
