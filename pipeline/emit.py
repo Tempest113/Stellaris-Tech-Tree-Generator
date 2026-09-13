@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import gates as gates_mod
 from . import profiles as profiles_mod
+from . import starting as starting_mod
 from . import unlocks as unlocks_mod
 from .clausewitz import Block, serialize
 from .graph import EdgeKind, TechGraph
@@ -188,16 +189,34 @@ def emit(
     used_icon_stems: list[str] = []
     nodes = []
     profiles: list[frozenset[str]] = []
+    routes_for = unlocks_mod.routes_finder(extraction.unlock_routes, extraction.unlocks, config)
     views = profiles_mod.compute_views(
         graph,
         slots,
         extraction.profile_definitions,
         extraction.profiles,
-        unlocks_mod.routes_finder(extraction.unlock_routes, extraction.unlocks, config),
+        routes_for,
         extraction.unlocks.component_prerequisites,
         extraction.unlocks,
         levels,
     )
+
+    start_cache: dict[str, list[starting_mod.Start | None]] = {}
+
+    def starts(key: str) -> list[starting_mod.Start | None]:
+        """How each profile begins with a technology; ``None`` where it does not, or never sees it."""
+        if key not in start_cache:
+            record = graph.records[key]
+            hidden = views.technology_hidden[key]
+            start_cache[key] = [
+                None
+                if hidden >> bit & 1
+                else starting_mod.starts(
+                    record, routes_for(key), profile, extraction.profile_definitions, extraction.unlocks
+                )
+                for bit, profile in enumerate(extraction.profiles)
+            ]
+        return start_cache[key]
 
     route_masks: dict[tuple[str, unlocks_mod.Route], int] = {}
 
@@ -291,17 +310,28 @@ def emit(
             node["pv"] = shown_as
         technology_routes = extraction.unlock_routes.get(slot.technology, ())
         tag = unlocks_mod.tag_for(record, technology_routes, config, extraction.unlocks, crisis_names)
-        if tag:
-            node["tg"] = tag
         # A tag names the strongest way in, so where that way is closed to a
         # profile, the profile's tag is the next: a hive mind's Leviathan Tech
         # Genesis comes from combat, the Technosphere project being militarist.
-        tags: dict[str | None, int] = {}
-        for bit in range(len(extraction.profiles)):
+        # A technology with nothing else to say is Starting where an ordinary
+        # empire of the profile begins with it.
+        per_profile: dict[int, str | None] = {}
+        for bit, start in enumerate(starts(slot.technology)):
+            if views.hidden[index] >> bit & 1:
+                continue
             open_routes = tuple(r for r in technology_routes if not closed_to(slot.technology, r) >> bit & 1)
-            if not open_routes:
+            if technology_routes and not open_routes:
                 continue  # hidden for the profile
             found = unlocks_mod.tag_for(record, open_routes, config, extraction.unlocks, crisis_names)
+            if found is None and start is not None and start.ordinary:
+                found = unlocks_mod.TAG_START
+            per_profile[bit] = found
+        if tag is None and per_profile and all(t == unlocks_mod.TAG_START for t in per_profile.values()):
+            tag = unlocks_mod.TAG_START
+        if tag:
+            node["tg"] = tag
+        tags: dict[str | None, int] = {}
+        for bit, found in per_profile.items():
             if found != tag:
                 tags[found] = tags.get(found, 0) | (1 << bit)
         if tags:
@@ -609,14 +639,87 @@ def emit(
             parts.append("other conditions")
         return joiner.join(parts)
 
-    def starting_conditions(record) -> list[str]:
-        """Named conditions in ``starting_potential``, for "Starting technology for ..."."""
-        if record.starting_potential is None:
+    def either(names: list[str]) -> str:
+        names = list(dict.fromkeys(names))
+        return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
+
+    def choices(exceptions) -> str:
+        """The choices in exceptions, as "the Payback origin, or the Eager Explorers civic"."""
+        origins = [localisation.name(key) for kind, key in exceptions if kind == "origin"]
+        civics = [localisation.name(key) for kind, key in exceptions if kind == "civic"]
+        parts = []
+        if origins:
+            parts.append(f"the {either(origins)} origin")
+        if civics:
+            parts.append(f"the {either(civics)} civic")
+        return ", or ".join(parts)
+
+    def start_sentence(ordinary: bool, exceptions, who: str | None = None) -> str:
+        """A sentence such as "Researched at the start, unless the empire has the Payback origin."."""
+        subject = f"Researched at the start by {who} empires" if who else "Researched at the start"
+        if ordinary:
+            return f"{subject}, unless the empire has {choices(exceptions)}." if exceptions else f"{subject}."
+        return f"Researched at the start only by empires with {choices(exceptions)}."
+
+    def empires(mask: int, among: int) -> str | None:
+        """Profiles in ``mask``, out of ``among``, in words -- "Hive Mind", "Beastmasters" -- if a word fits."""
+        chosen = [p for bit, p in enumerate(extraction.profiles) if mask >> bit & 1]
+        pool = [p for bit, p in enumerate(extraction.profiles) if among >> bit & 1]
+        candidates: list[tuple[str, object]] = []
+        for authority in profiles_mod.AUTHORITIES:
+            label = profiles_mod.AUTHORITY_LABELS[authority]
+            candidates.append((label, lambda p, a=authority: p.authority == a))
+            for toggle, toggle_label in profiles_mod.TOGGLES:
+                candidates.append(
+                    (f"{label}, {toggle_label}", lambda p, a=authority, n=toggle: p.authority == a and getattr(p, n))
+                )
+        for toggle, toggle_label in profiles_mod.TOGGLES:
+            candidates.append((toggle_label, lambda p, n=toggle: getattr(p, n)))
+        for label, holds in candidates:
+            if [p for p in pool if holds(p)] == chosen:
+                return label
+        return None
+
+    def start_wording(key: str) -> list[dict]:
+        """The sentence each profile reads about starting with a technology, first entry for every empire.
+
+        For every empire at once: when all the empires that see the technology
+        start with it, "unless" every exception any of them has; when none of
+        them does, "only by empires with" every choice that grants it; and when
+        the kinds of empire differ, which kind starts with it, if a word fits.
+        """
+        found = starts(key)
+        hidden = views.technology_hidden[key]
+        seen = [(bit, start) for bit, start in enumerate(found) if not hidden >> bit & 1]
+        if not any(start is not None for _, start in seen):
             return []
-        return [
-            config.names[pair.key]
-            for pair in record.starting_potential.pairs()
-            if pair.key in config.names
+        by_text: dict[str, int] = {}
+        for bit, start in seen:
+            if start is not None:
+                text = start_sentence(start.ordinary, start.exceptions)
+                by_text[text] = by_text.get(text, 0) | (1 << bit)
+
+        visible = sum(1 << bit for bit, _ in seen)
+        ordinary = sum(1 << bit for bit, start in seen if start is not None and start.ordinary)
+
+        def union(keep) -> list[tuple[str, str]]:
+            return list(dict.fromkeys(e for _, start in seen if start is not None and keep(start) for e in start.exceptions))
+
+        if ordinary == visible:
+            default = start_sentence(True, union(lambda s: s.ordinary))
+        elif ordinary == 0:
+            default = start_sentence(False, union(lambda s: not s.ordinary))
+        else:
+            who = empires(ordinary, visible)
+            if who is None:
+                default = "Researched at the start by some empires. Choose an empire to see whether yours is one."
+            else:
+                default = start_sentence(True, union(lambda s: s.ordinary), who)
+                others = union(lambda s: not s.ordinary)
+                if others:
+                    default += f" Other empires start with it only with {choices(others)}."
+        return [{"t": default}] + [
+            {"m": format(mask, "x"), "t": text} for text, mask in sorted(by_text.items(), key=lambda kv: kv[1])
         ]
 
     details = {}
@@ -634,9 +737,9 @@ def emit(
         technology_routes = route_payload(key)
         if technology_routes:
             entry["u"] = technology_routes
-        starting = starting_conditions(record) if record.start_tech else []
-        if starting:
-            entry["st"] = starting
+        wording = start_wording(key)
+        if wording:
+            entry["sw"] = wording
         modifiers = cost_modifiers(record)
         if modifiers:
             entry["cm"] = modifiers

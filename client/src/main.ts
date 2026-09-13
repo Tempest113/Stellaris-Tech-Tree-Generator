@@ -393,7 +393,17 @@ async function main(): Promise<void> {
   };
   /** A cost factor and the conditions it applies under, in words. */
   type CostModifier = { f: number; w: string };
-  type Detail = { d: string; p: string[][]; ap?: Gate[]; u?: Route[]; st?: string[]; cm?: CostModifier[] };
+  /** What an empire reads about starting with a technology: the first entry
+   *  is for every empire at once, the rest for the profiles in `m`. */
+  type StartWording = { t: string; m?: string };
+  type Detail = {
+    d: string;
+    p: string[][];
+    ap?: Gate[];
+    u?: Route[];
+    sw?: StartWording[];
+    cm?: CostModifier[];
+  };
   let details: Record<string, Detail> | null = null;
   async function showPanel(index: number): Promise<void> {
     const node = data.nodes[index]!;
@@ -443,7 +453,7 @@ async function main(): Promise<void> {
         ${node.dangerous ? '<span class="flag danger">Dangerous</span>' : ""}
         ${node.rare ? '<span class="flag rare">Rare</span>' : ""}
         ${gateFlag(gates)}
-        ${tagFlag(node.tag, detail?.st)}
+        ${tagFlag(node.tag)}
         ${node.variant && data.view.profile === null ? '<span class="flag">Variant for Some Empires</span>' : ""}
         ${node.spilled ? '<span class="flag">Placed Past Its Tier Band</span>' : ""}
       </p>
@@ -452,6 +462,7 @@ async function main(): Promise<void> {
         <button type="button" data-action="link">Copy Link</button>
         <span class="done" role="status" aria-live="polite"></span>
       </div>
+      ${startNote(detail?.sw)}
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
       ${gateSection(gates)}
       ${routeSection(routesForProfile(detail?.u), node.tag)}
@@ -600,15 +611,21 @@ async function main(): Promise<void> {
   }
 
   /** The card tag again, spelled out for the panel. */
-  function tagFlag(tag: string | undefined, starting: string[] | undefined): string {
+  function tagFlag(tag: string | undefined): string {
     if (!tag) return "";
-    const text =
-      tag === "Event"
-        ? "Granted by an Event"
-        : tag === "Starting"
-          ? `Starting Technology${starting?.length ? ` for ${starting.join(", ")}` : ""}`
-          : tag;
+    const text = tag === "Event" ? "Granted by an Event" : tag === "Starting" ? "Starting Technology" : tag;
     return `<span class="flag event">${escapeHtml(text)}</span>`;
+  }
+
+  /** Who begins the game with the technology, as the chosen empire reads it. */
+  function startNote(wording: StartWording[] | undefined): string {
+    if (!wording?.length) return "";
+    const profile = data.view.profile;
+    const entry =
+      profile === null
+        ? wording[0]
+        : wording.slice(1).find((w) => (mask(w.m) & profileBit(profile)) !== 0n);
+    return entry ? `<p class="start-note">${escapeHtml(entry.t)}</p>` : "";
   }
 
   /**
@@ -725,7 +742,7 @@ async function main(): Promise<void> {
       crisis: (n) => `Reaching ${n}`,
       tagged: (n) => n,
       research: (n) => `Researching ${n}`,
-      start: () => "Game start, for some origins or empires",
+      start: () => "Game start",
       event: () => "An event, special project or situation",
     };
     const items = routes

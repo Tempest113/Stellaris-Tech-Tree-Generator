@@ -351,3 +351,46 @@ def test_a_route_no_empire_can_take_is_dropped(built):
     extraction, _, _ = built
     kinds = {r.kind for r in extraction.unlock_routes["tech_psionic_shield"]}
     assert RouteKind.TRADITION not in kinds
+
+
+def test_a_chosen_origin_and_civics_settle_those_choices():
+    """The ordinary empire of :mod:`pipeline.starting`: an origin nothing names, and no civics."""
+    defs = _definitions(
+        civics="""
+            origin_payback = { is_origin = yes }
+            civic_eager_explorers = { }
+            civic_hive_only = { potential = { authority = { value = auth_hive_mind } } }
+        """,
+        triggers="is_eager_explorer_empire = { has_civic = civic_eager_explorers }",
+    )
+    ordinary = Evaluator(Profile("regular"), defs, origin="", civics=frozenset())
+    assert ordinary.trigger(parse("has_origin = origin_payback")) is TV.FALSE
+    assert ordinary.trigger(parse("is_eager_explorer_empire = no")) is TV.TRUE
+    chosen = Evaluator(Profile("regular"), defs, origin="origin_payback", civics=frozenset({"civic_eager_explorers"}))
+    assert chosen.trigger(parse("has_origin = origin_payback is_eager_explorer_empire = yes")) is TV.TRUE
+    # A civic the empire could never take stays impossible when chosen.
+    assert Evaluator(Profile("regular"), defs, civics=frozenset({"civic_hive_only"})).civic("civic_hive_only") is TV.FALSE
+    assert _trigger("is_primitive = no", Profile("regular")) is TV.TRUE
+
+
+@pytest.mark.corpus
+def test_what_an_ordinary_empire_starts_with_and_what_changes_it(built):
+    from pipeline.starting import starts
+
+    extraction, _, _ = built
+    finder = routes_finder(extraction.unlock_routes, extraction.unlocks, extraction.unlock_config)
+    profiles = {p.key: p for p in extraction.profiles}
+
+    def start(key: str, profile: str):
+        return starts(extraction[key], finder(key), profiles[profile], extraction.profile_definitions, extraction.unlocks)
+
+    lab = start("tech_basic_science_lab_1", "regular")
+    assert lab.ordinary
+    assert {("origin", "origin_broken_shackles"), ("origin", "origin_payback"), ("civic", "civic_eager_explorers")} <= set(lab.exceptions)
+    # Eager Explorers is not open to a bio-ship empire.
+    assert ("civic", "civic_eager_explorers") not in start("tech_basic_science_lab_1", "regular-bio-ships").exceptions
+    fruit = start("tech_critter_feeder", "regular")
+    assert not fruit.ordinary and fruit.exceptions == [("origin", "origin_fruitful")]
+    # Handed out at the start by an event only beastmasters see.
+    assert start("tech_thrusters_bio_integration", "regular-beastmasters").ordinary
+    assert start("tech_thrusters_bio_integration", "regular") is None

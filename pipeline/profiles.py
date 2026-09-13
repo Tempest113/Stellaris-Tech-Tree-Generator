@@ -282,9 +282,22 @@ _BIO_CULTURES = {"biogenesis_01", "biogenesis_02"}
 class Evaluator:
     """Reads triggers, and the civic-style blocks of the empire designer, against one profile."""
 
-    def __init__(self, profile: Profile, definitions: Definitions) -> None:
+    def __init__(
+        self,
+        profile: Profile,
+        definitions: Definitions,
+        *,
+        origin: str | None = None,
+        civics: frozenset[str] | None = None,
+    ) -> None:
+        """``origin`` and ``civics``, when given, settle those choices too: the
+        empire has exactly that origin and exactly those civics. An origin no
+        condition names stands for an ordinary empire (see :mod:`pipeline.starting`).
+        """
         self.profile = profile
         self.defs = definitions
+        self.chosen_origin = origin
+        self.chosen_civics = civics
         self._available: dict[tuple[str, str], TV] = {}
         self._pending: set[tuple[str, str]] = set()
 
@@ -334,7 +347,12 @@ class Evaluator:
             return _truth(value == WILDERNESS_ORIGIN)
         if value == WILDERNESS_ORIGIN:
             return TV.FALSE
-        return self.available("origin", value)
+        if self.chosen_origin is not None and value != self.chosen_origin:
+            return TV.FALSE
+        possible = self.available("origin", value)
+        if self.chosen_origin is not None and possible is not TV.FALSE:
+            return TV.TRUE
+        return possible
 
     def civic(self, value: str) -> TV:
         beastmasters = self.defs.beastmaster_civics
@@ -345,7 +363,12 @@ class Evaluator:
             if value not in open_:
                 return TV.FALSE
             return TV.TRUE if len(open_) == 1 else TV.UNKNOWN
-        return self.available("civic", value)
+        if self.chosen_civics is not None and value not in self.chosen_civics:
+            return TV.FALSE
+        possible = self.available("civic", value)
+        if self.chosen_civics is not None and possible is not TV.FALSE:
+            return TV.TRUE
+        return possible
 
     # -- triggers --------------------------------------------------------
 
@@ -398,6 +421,9 @@ class Evaluator:
             return _truth(asserted)
         if lowered == "is_ai" and yes_no:
             return _truth(not asserted)
+        if lowered == "is_primitive" and yes_no:
+            # A pre-FTL civilisation; no player empire is one.
+            return polar(TV.FALSE)
         if lowered == "host_has_dlc" or (lowered.startswith("has_") and lowered.endswith("_dlc")):
             return polar(TV.TRUE) if yes_no else TV.TRUE
         if lowered == "has_country_flag" and self.defs.flag_words is not None:

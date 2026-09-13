@@ -218,3 +218,17 @@ def test_no_route_name_has_lost_words_to_runtime_state(emitted):
     names = {s["n"] for entry in details.values() for r in entry.get("u", ()) for s in r.get("s", ())}
     assert "Materiality Engine on" not in names
     assert all(name and not name.endswith((" on", " of", " the", ":")) for name in names)
+
+
+@pytest.mark.corpus
+def test_starting_technologies_are_tagged_and_explained(emitted):
+    _, dataset, details = emitted
+    lasers = next(n for n in dataset["nodes"] if n["k"] == "tech_lasers_1")
+    assert lasers["tg"] == "Starting"
+    lab = details["tech_basic_science_lab_1"]["sw"][0]["t"]
+    assert lab.startswith("Researched at the start, unless the empire has the Broken Shackles or Payback origin")
+    assert details["tech_critter_feeder"]["sw"][0]["t"] == (
+        "Researched at the start only by empires with the Fruitful Partnership origin."
+    )
+    thrusters = details["tech_thrusters_bio_integration"]["sw"][0]["t"]
+    assert thrusters == "Researched at the start by Beastmasters empires."

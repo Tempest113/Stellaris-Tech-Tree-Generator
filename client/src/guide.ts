@@ -44,7 +44,8 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
           <li>${badge(false)}<span><b>Badge</b>: the ascension perk or crisis path it needs.</span></li>
           <li>${badge(true)}<span><b>Dashed badge</b>: needed by something earlier in its line, not by the card itself.</span></li>
           <li><span class="sample tag">Event</span><span><b>Purple word</b>: how a technology that is never
-            offered for research arrives, such as Event, Special Project, Debris or Starting. The details panel lists every way.</span></li>
+            offered for research arrives, such as Event, Special Project or Debris, and the details panel lists every way.
+            <b>Starting</b> marks one an ordinary empire begins with; the panel names the origins and civics that change that.</span></li>
           <li><span class="sample muted">Variant</span><span><b>Grey Variant</b>, with no empire chosen: the same
             technology, placed where the empires that see it differently find it.</span></li>
           <li><span class="sample mono">T3 ×5</span><span><b>Tier</b>, and levels for a repeatable (∞ for unlimited).
