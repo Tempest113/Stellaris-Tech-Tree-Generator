@@ -156,6 +156,37 @@ def test_every_chain_of_a_route_is_kept():
     assert set(route.chains) == {(("event", "a.1"),), (("event", "a.2"),)}
 
 
+def test_a_chain_is_named_by_the_activity_nearest_the_grant():
+    """The project whose completion hands the technology out, not the anomaly that began it."""
+    from pipeline.localisation import Localisation, LocEntry
+    from pipeline.unlocks import chain_name
+
+    table = Localisation()
+    for key, value in {
+        "PROJECT": "Voidworm Research",
+        "ANOMALY_CAT": "Strange Signal",
+        "enzymes.title": "Voidworm Enzymes",
+        "hidden.title": "Never Shown",
+        "RUNTIME_PROJECT": "Engine on [planet.GetName]",
+    }.items():
+        table.entries[key] = LocEntry(raw=value)
+    index = UnlockIndex(titles={"e.2": "enzymes.title"})
+    chain = (("event", "e.2"), ("special_project", "PROJECT"), ("anomalies", "ANOMALY_CAT"))
+    assert chain_name(chain, index, table) == ("Special Project", "Voidworm Research")
+    # No activity with a fixed name: the nearest titled event.
+    chain = (("event", "e.1"), ("event", "e.2"), ("special_project", "RUNTIME_PROJECT"), ("on_actions", "on_x"))
+    assert chain_name(chain, index, table) == ("Event", "Voidworm Enzymes")
+    assert chain_name((("event", "e.1"), ("on_actions", "on_x")), index, table) is None
+
+
+def test_an_event_without_a_window_has_no_title():
+    from pipeline.unlocks import _title
+
+    assert _title(parse("id = a.1 title = a.1.name")) == "a.1.name"
+    assert _title(parse("title = { trigger = { always = yes } text = a.2.name }")) == "a.2.name"
+    assert _title(parse("hide_window = yes title = a.3.name")) is None
+
+
 # --------------------------------------------------------------------------
 # Unit: classification
 # --------------------------------------------------------------------------

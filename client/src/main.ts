@@ -382,11 +382,14 @@ async function main(): Promise<void> {
     a: Condition[][];
     v?: string;
   };
+  /** A project, situation or event a route runs through: `c` its kind, `x` the profiles it is closed to. */
+  type RouteName = { n: string; c: string; x?: string };
   /** A way an undrawable technology reaches a player; `x` masks the profiles it is closed to. */
   type Route = {
     k: "perk" | "tradition" | "crisis" | "tagged" | "research" | "start" | "event";
     n: string;
     x?: string;
+    s?: RouteName[];
   };
   /** A cost factor and the conditions it applies under, in words. */
   type CostModifier = { f: number; w: string };
@@ -575,7 +578,9 @@ async function main(): Promise<void> {
     const profile = data.view.profile;
     if (!routes || profile === null) return routes;
     const bit = profileBit(profile);
-    return routes.filter((route) => (mask(route.x) & bit) === 0n);
+    return routes
+      .filter((route) => (mask(route.x) & bit) === 0n)
+      .map((route) => ({ ...route, s: route.s?.filter((name) => (mask(name.x) & bit) === 0n) }));
   }
 
   /** A gate as plain text: alternatives joined by "or", conditions by "+". */
@@ -711,9 +716,9 @@ async function main(): Promise<void> {
   /** How an undrawable technology reaches a player, when there is more to say than its tag. */
   function routeSection(routes: Route[] | undefined, tag: string | undefined): string {
     if (!routes?.length) return "";
-    // A lone route the tag already names adds nothing.
+    // A lone route the tag already names, with nothing more specific to say, adds nothing.
     const lone = routes.length === 1 ? routes[0]! : undefined;
-    if (lone && (lone.k === "tagged" || lone.k === "crisis") && lone.n === tag) return "";
+    if (lone && (lone.k === "tagged" || lone.k === "crisis") && lone.n === tag && !lone.s?.length) return "";
     const phrase: Record<Route["k"], (name: string) => string> = {
       perk: (n) => `Taking the ${n} ascension perk`,
       tradition: (n) => `Adopting ${n}`,
@@ -723,8 +728,30 @@ async function main(): Promise<void> {
       start: () => "Game start, for some origins or empires",
       event: () => "An event, special project or situation",
     };
-    const items = routes.map((r) => `<li>${escapeHtml(phrase[r.k](r.n))}</li>`).join("");
-    return `<h3>Unlocked By</h3><ul>${items}</ul>`;
+    const items = routes
+      .map((r) => {
+        const names = r.s ?? [];
+        if (names.length === 0) return `<li>${escapeHtml(phrase[r.k](r.n))}</li>`;
+        // A tag already says what kind of thing these are; a plain event route
+        // names each kind, since one route can run through projects and events alike.
+        const label = r.k === "tagged" ? r.n : [...new Set(names.map((name) => name.c))].join(" or ");
+        return `<li><span class="route">${escapeHtml(label)}</span>${nameList(names)}</li>`;
+      })
+      .join("");
+    return `<h3>Unlocked By</h3><ul class="routes">${items}</ul>`;
+  }
+
+  /** Names after a route's label: the first few inline, the rest behind a disclosure. */
+  function nameList(names: RouteName[]): string {
+    const SHOWN = 3;
+    const text = (list: RouteName[]) => list.map((name) => escapeHtml(name.n)).join(", ");
+    const head = `: ${text(names.slice(0, SHOWN))}`;
+    if (names.length <= SHOWN) return `<span class="names">${head}</span>`;
+    const rest = names.slice(SHOWN);
+    return (
+      `<span class="names">${head}</span>` +
+      `<details class="more"><summary>and ${rest.length} more</summary>${text(rest)}</details>`
+    );
   }
 
   /** Background shorthand for one atlas cell, so a perk icon needs no <img>. */

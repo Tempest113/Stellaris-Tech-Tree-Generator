@@ -174,6 +174,8 @@ class UnlockIndex:
     component_prerequisites: set[str] = field(default_factory=set)
     #: Grants whose caller chains ran past :data:`MAX_ROUTES`.
     truncated: set[Container] = field(default_factory=set)
+    #: Event id -> localisation key of its title, for events that open a window.
+    titles: dict[str, str] = field(default_factory=dict)
     _callers: dict[Container, set[Container]] | None = None
     _granted_by: dict[str, list[Container]] | None = None
     _flag_setters: dict[str, list[Container]] | None = None
@@ -529,6 +531,23 @@ def _trigger_technologies(event: Block) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _title(event: Block) -> str | None:
+    """The localisation key of an event's title; ``None`` for an event with no window.
+
+    A title that varies by trigger, ``title = { trigger = { ... } text = key }``,
+    gives its first text.
+    """
+    if event.scalar_text("hide_window") == "yes":
+        return None
+    title = event.get_first("title")
+    if isinstance(title, Scalar):
+        return title.value
+    if isinstance(title, Block):
+        text = title.get_first("text")
+        return text.value if isinstance(text, Scalar) else None
+    return None
+
+
 def _ai_only(event: Block) -> bool:
     """Whether an event's trigger holds for AI empires only."""
     trigger = event.get_first("trigger")
@@ -642,6 +661,9 @@ def build_index(load_order: LoadOrder, config: UnlockConfig | None = None) -> Un
             event_id = pair.value.get_first("id")
             if not isinstance(event_id, Scalar):
                 continue
+            title = _title(pair.value)
+            if title:
+                index.titles[event_id.value] = title
             scoped = pair.key in _EMPIRE_SCOPED
             trigger = pair.value.get_first("trigger")
             definition = Definition(
@@ -819,6 +841,48 @@ def _classify(
     if root_kind == "on_actions" and root_key.startswith("on_game_start"):
         return Route(RouteKind.START, None, chain)
     return Route(RouteKind.EVENT, None, chain)
+
+
+#: Containers a player starts or finds in play, and what to call each kind.
+#: Anything else on a chain -- an on-action, a scripted effect -- is machinery
+#: a player never sees.
+ACTIVITIES = {
+    "special_project": "Special Project",
+    "situations": "Situation",
+    "archaeological_site_types": "Dig Site",
+    "anomalies": "Anomaly",
+    "astral_rifts": "Astral Rift",
+    "patrons": "Covenant",
+    "artifact_actions": "Minor Artifact",
+    "espionage_operation_types": "Operation",
+    "megastructures": "Megastructure",
+    "buildings": "Building",
+    "council_agendas": "Council Agenda",
+    "decisions": "Decision",
+    "edicts": "Edict",
+}
+
+
+def chain_name(chain: tuple[Container, ...], index: UnlockIndex, localisation) -> tuple[str, str] | None:
+    """What a player would recognise a chain by, as ``(kind, name)``, or ``None``.
+
+    The activity nearest the grant -- the special project whose completion
+    hands the technology out, rather than the anomaly that began the story --
+    and failing any, the nearest event with a window, by its title. A name that
+    depends on runtime state is passed over for the next.
+    """
+    for kind, key in chain:
+        label = ACTIVITIES.get(kind)
+        if label is not None:
+            text = localisation.fixed(key) or localisation.fixed(key.lower())
+            if text:
+                return label, text
+    for kind, key in chain:
+        if kind == "event" and key in index.titles:
+            text = localisation.fixed(index.titles[key])
+            if text:
+                return "Event", text
+    return None
 
 
 #: Card tags, as a player reads them.

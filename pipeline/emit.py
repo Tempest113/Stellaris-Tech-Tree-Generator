@@ -509,11 +509,34 @@ def emit(
             payload.append(entry)
         return payload
 
+    def route_names(key: str, route: unlocks_mod.Route) -> list[dict]:
+        """The projects, situations and events a route runs through, by name.
+
+        One name per chain at most (see :func:`pipeline.unlocks.chain_name`),
+        in the order the chains were found, each with ``c`` its kind and ``x``
+        the profiles every chain behind it is closed to.
+        """
+        names: dict[tuple[str, str], int] = {}
+        for chain in route.chains or (route.chain,):
+            found = unlocks_mod.chain_name(chain, extraction.unlocks, localisation)
+            if found is None:
+                continue
+            closed = 0
+            for bit, ev in enumerate(views.evaluators):
+                if not profiles_mod.chain_open(ev, route, chain, key, extraction.unlocks, levels):
+                    closed |= 1 << bit
+            names[found] = names.get(found, closed) & closed
+        return [
+            {"n": text, "c": label, **({"x": format(mask, "x")} if mask else {})}
+            for (label, text), mask in names.items()
+        ]
+
     def route_payload(key: str) -> list[dict]:
         """How an undrawable technology reaches a player, one entry per way.
 
-        ``x`` masks the profiles a way is closed to. Two ways that read the same
-        are one entry, closed only where both are.
+        ``x`` masks the profiles a way is closed to, and ``s`` names what it
+        runs through. Two ways that read the same are one entry, closed only
+        where both are.
         """
         payload: list[dict] = []
         for route in extraction.unlock_routes.get(key, ()):
@@ -529,11 +552,17 @@ def emit(
             else:
                 name = ""
             closed = closed_to(key, route)
+            named = (
+                route_names(key, route)
+                if kind in (unlocks_mod.RouteKind.TAGGED, unlocks_mod.RouteKind.EVENT)
+                else []
+            )
             same = next((e for e in payload if e["k"] == kind.value and e["n"] == name), None)
             if same is not None:
                 same["x"] = same["x"] & closed
+                same.setdefault("s", []).extend(n for n in named if n not in same.get("s", []))
                 continue
-            payload.append({"k": kind.value, "n": name, "x": closed})
+            payload.append({"k": kind.value, "n": name, "x": closed, **({"s": named} if named else {})})
         for entry in payload:
             if entry["x"]:
                 entry["x"] = format(entry["x"], "x")

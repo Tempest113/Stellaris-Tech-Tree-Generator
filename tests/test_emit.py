@@ -196,3 +196,25 @@ def test_a_badge_follows_the_routes_a_profile_can_take(emitted):
     assert tetra.get("pb", -1) >= 0
     under_nomads = next(b for b in tetra["bv"] if int(b["m"], 16) & nomad)
     assert "pb" not in under_nomads
+
+
+@pytest.mark.corpus
+def test_unlock_routes_name_what_they_run_through(emitted):
+    """Voidworm Immunity's special project is Voidworm Research; a hive mind is not offered it by first contact."""
+    _, dataset, details = emitted
+    routes = {r["n"] or r["k"]: r for r in details["tech_voidworm_immunity"]["u"]}
+    assert {"n": "Voidworm Research", "c": "Special Project"} in routes["First Contact"]["s"]
+    xeno = {r["n"]: r for r in details["tech_xeno_linguistics"]["u"] if r["k"] == "tagged"}
+    names = {s["n"] for s in xeno["First Contact"]["s"]}
+    assert "First Alien Encounter" in names
+    hive = 1 << [p["k"] for p in dataset["profiles"]].index("hive")
+    assert int(xeno["First Contact"]["x"], 16) & hive
+
+
+@pytest.mark.corpus
+def test_no_route_name_has_lost_words_to_runtime_state(emitted):
+    """"Materiality Engine on [planet.GetName]" must not show as "Materiality Engine on"."""
+    _, _, details = emitted
+    names = {s["n"] for entry in details.values() for r in entry.get("u", ()) for s in r.get("s", ())}
+    assert "Materiality Engine on" not in names
+    assert all(name and not name.endswith((" on", " of", " the", ":")) for name in names)

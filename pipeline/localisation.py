@@ -97,6 +97,35 @@ class Localisation:
         """Display name, falling back to the key so nothing renders blank."""
         return self.get(key) or key
 
+    def fixed(self, key: str) -> str | None:
+        """Resolved text for ``key``, or ``None`` when part of it is only known at runtime.
+
+        ``SHROUD_FORGED_MATERIALITY_ENGINE`` is "$building_materiality_engine$
+        on [planet.GetName]"; with the planet dropped, what is left reads
+        "Materiality Engine on". A name that loses words to runtime state is
+        better not shown.
+        """
+        entry = self.entries.get(key)
+        if entry is None or self._runtime(entry.raw, depth=0, seen={key}):
+            return None
+        return self.get(key) or None
+
+    def _runtime(self, text: str, *, depth: int, seen: set[str]) -> bool:
+        if _COMMAND.search(text):
+            return True
+        if depth >= MAX_RESOLUTION_DEPTH:
+            return False
+        for match in _TOKEN.finditer(text):
+            key = match.group(1)
+            if not key or match.group(2):
+                return True
+            entry = self.entries.get(key)
+            if entry is None:
+                return True
+            if key not in seen and self._runtime(entry.raw, depth=depth + 1, seen=seen | {key}):
+                return True
+        return False
+
     def description(self, key: str) -> str:
         return self.get(f"{key}_desc") or ""
 

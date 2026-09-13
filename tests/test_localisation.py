@@ -24,6 +24,22 @@ def _table(**entries: str) -> Localisation:
 # --------------------------------------------------------------------------
 
 
+def test_a_name_with_runtime_parts_is_not_fixed():
+    """"Materiality Engine on [planet.GetName]" would read "Materiality Engine on"."""
+    table = _table(
+        engine="Materiality Engine",
+        project="$engine$ on §H[planet.GetName]§!",
+        nested="$project$",
+        valued="Gain $VALUE|0$",
+        plain="$engine$ Readied",
+    )
+    assert table.fixed("plain") == "Materiality Engine Readied"
+    assert table.fixed("project") is None
+    assert table.fixed("nested") is None
+    assert table.fixed("valued") is None
+    assert table.fixed("missing") is None
+
+
 def test_every_token_on_a_line_resolves_not_just_the_first():
     """The exact bug that left 16.4% of names broken in the previous attempt."""
     table = _table(

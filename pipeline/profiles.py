@@ -757,6 +757,15 @@ def route_closed(route, technology: str, evaluators, index=None, crisis_levels=N
     return mask
 
 
+def chain_open(ev: Evaluator, route, chain, technology: str, index=None, crisis_levels=None) -> bool:
+    """Whether one chain of ``route`` can be the way in for the evaluator's profile."""
+    if route_truth(ev, route, technology, index, crisis_levels) is TV.FALSE:
+        return False
+    if index is None or not index.truncated.isdisjoint(index.granted_by.get(technology, ())):
+        return True
+    return _chain_truth(ev, chain, technology, index) is not TV.FALSE
+
+
 def _chain_truth(ev: Evaluator, chain, technology: str, index) -> TV:
     parts: list[TV] = []
     for position, container in enumerate(chain):
