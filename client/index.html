@@ -57,21 +57,77 @@
         max-width: calc(100vw - 24px);
       }
 
-      #profile {
+      #toolbar {
         position: fixed;
         left: 12px;
         top: 38px;
         display: flex;
         flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 8px;
+        max-width: calc(100vw - 24px);
+        font: 600 12px var(--display);
+      }
+      #profile,
+      #search {
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 6px;
-        max-width: calc(100vw - 24px);
         padding: 6px;
         background: rgba(10, 12, 16, 0.85);
         border: 1px solid var(--line);
         border-radius: 6px;
-        font: 600 12px var(--display);
       }
+      #search { position: relative; }
+      #search input {
+        width: 240px;
+        height: 28px;
+        padding: 0 10px;
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font: inherit;
+        letter-spacing: 0.02em;
+      }
+      #search input:focus { outline: none; border-color: var(--rare); }
+      #search .results {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        width: 360px;
+        max-width: calc(100vw - 24px);
+        margin: 0;
+        padding: 4px;
+        list-style: none;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      }
+      #search .results li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 5px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #search .results li.active { background: #2a2238; }
+      #search .results li.unavailable { opacity: 0.45; cursor: default; }
+      #search .results li.empty { color: var(--dim); cursor: default; font-weight: 500; }
+      #search .results .icon {
+        flex: none;
+        width: 28px;
+        height: 28px;
+        border-radius: 3px;
+        background-repeat: no-repeat;
+        background-color: #111;
+      }
+      #search .results .text { display: flex; flex-direction: column; min-width: 0; }
+      #search .results .name { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #search .results .meta { color: var(--dim); font-weight: 500; font-size: 11px; }
       #profile select,
       #profile .toggle {
         height: 28px;
@@ -217,11 +273,14 @@
   </head>
   <body>
     <canvas id="tree"></canvas>
-    <div id="profile" role="group" aria-label="Empire profile"></div>
+    <div id="toolbar">
+      <div id="search" role="search"></div>
+      <div id="profile" role="group" aria-label="Empire profile"></div>
+    </div>
     <div id="status">Loading…</div>
     <div id="help">
       hover: highlight &middot; click: pin &middot; middle-click: isolate &middot;
-      <kbd>F</kbd> fit &middot; <kbd>Esc</kbd> clear
+      <kbd>/</kbd> search &middot; <kbd>F</kbd> fit &middot; <kbd>Esc</kbd> clear
     </div>
     <aside id="panel" hidden></aside>
     <script type="module" src="/src/main.ts"></script>

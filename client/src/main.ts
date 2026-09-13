@@ -8,7 +8,9 @@
  */
 
 import { Camera } from "./camera";
+import { CARD_HEIGHT, CARD_WIDTH } from "./geometry";
 import { mountProfilePicker } from "./profile";
+import { mountSearch } from "./search";
 import { Renderer, emptySelection } from "./renderer";
 import {
   applyProfile,
@@ -34,6 +36,7 @@ async function main(): Promise<void> {
   const status = document.getElementById("status") as HTMLElement;
   const panel = document.getElementById("panel") as HTMLElement;
   const profileBar = document.getElementById("profile") as HTMLElement;
+  const toolbar = document.getElementById("toolbar") as HTMLElement;
 
   status.textContent = "Loading dataset…";
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
@@ -51,11 +54,18 @@ async function main(): Promise<void> {
   });
   if (picker.current !== null) applyProfile(data, picker.current);
 
-  // Fitting keeps the tree clear of the tier header and the profile bar below it.
+  const search = mountSearch(
+    document.getElementById("search") as HTMLElement,
+    data,
+    atlasStyle,
+    (index) => reveal(index),
+  );
+
+  // Fitting keeps the tree clear of the tier header and the toolbar below it.
   const camera = new Camera(
     () => data.view.geometry,
     { width: canvas.clientWidth, height: canvas.clientHeight },
-    profileBar.getBoundingClientRect().bottom + 8,
+    toolbar.getBoundingClientRect().bottom + 8,
   );
   const renderer = new Renderer(canvas, data, camera);
   renderer.resize();
@@ -135,6 +145,21 @@ async function main(): Promise<void> {
     selection.descendants = descendants;
     if (selection.pinned !== null) showPanel(active);
     schedule();
+  }
+
+  /**
+   * Bring a card into view, pinned, with its panel open. Centred in the space
+   * the panel leaves, so the panel never covers the card it describes.
+   */
+  function reveal(index: number): void {
+    const node = data.nodes[index]!;
+    selection.isolated = null;
+    selection.pinned = null;
+    const scale = Math.max(camera.scale, 0.8);
+    const panelWidth = window.innerWidth > 700 ? Math.min(420, window.innerWidth) : 0;
+    const offset = panelWidth / 2 / scale;
+    camera.centreOn(node.x + CARD_WIDTH / 2 + offset, node.y + CARD_HEIGHT / 2, scale);
+    select(index, true);
   }
 
   function isolate(index: number | null): void {
@@ -516,7 +541,12 @@ async function main(): Promise<void> {
   );
 
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "SELECT")) return;
+    if (event.key === "/" || (event.key === "k" && (event.ctrlKey || event.metaKey))) {
+      event.preventDefault();
+      search.focus();
+    } else if (event.key === "Escape") {
       selection.isolated = null;
       selection.pinned = null;
       select(null, true);
