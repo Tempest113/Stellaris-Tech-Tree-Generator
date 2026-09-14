@@ -194,14 +194,18 @@ def built(install, gigas_root: Path):
     return extraction, slots, views
 
 
-def _bit(extraction, key: str) -> int:
-    return 1 << [p.key for p in extraction.profiles].index(key)
+def _bit(extraction, key: str, preset: str | None = "arcade") -> int:
+    """The profile of kind ``key`` under ``preset`` (the default, Arcade, when not said)."""
+    return 1 << [(p.key, p.preset) for p in extraction.profiles].index((key, preset))
 
 
 @pytest.mark.corpus
 def test_only_creatable_empires_are_profiles(built):
     extraction, _, _ = built
-    profiles = extraction.profiles
+    presets = extraction.preset_config.presets
+    # Every kind of empire, once under each Gigastructures settings preset.
+    assert len(extraction.profiles) == PROFILE_COUNT * max(len(presets), 1)
+    profiles = [p for p in extraction.profiles if p.preset == (presets[0].key if presets else None)]
     assert len(profiles) == PROFILE_COUNT
     assert all(p.authority == "hive" and p.bio_ships and not p.nomadic for p in profiles if p.wilderness)
     assert all(p.authority == "regular" for p in profiles if p.machine_species)

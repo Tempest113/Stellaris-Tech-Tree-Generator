@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pipeline import config as build_config
 from pipeline import emit as emit_mod
 from pipeline import gates as gates_mod
+from pipeline import presets as presets_mod
 from pipeline import unlocks as unlocks_mod
 from pipeline import graph as graph_mod
 from pipeline import layout as layout_mod
@@ -160,6 +161,13 @@ def main() -> int:
     out = args.out or (cfg.output_root / "data")
     result = emit_mod.emit(extraction, graph, layout, localisation, assignment, out)
     print(f"emit:    {result.summary()}")
+
+    presets_report = cfg.output_root / "presets.md"
+    presets_report.parent.mkdir(parents=True, exist_ok=True)
+    presets_report.write_text(
+        presets_mod.report(graph, result.views, extraction, localisation), encoding="utf-8"
+    )
+    print(f"presets: review what each settings preset hides -> {presets_report}")
 
     tags_report = cfg.output_root / "unlock-tags.md"
     tags_report.parent.mkdir(parents=True, exist_ok=True)

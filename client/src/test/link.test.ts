@@ -11,20 +11,20 @@ afterEach(() => {
 
 describe("links", () => {
   it("round-trips the view", () => {
-    const state = { empire: "hive-bio-ships", tech: "tech_titans", isolate: "tech_titans" };
+    const state = { empire: "hive-bio-ships", preset: "arcade", tech: "tech_titans", isolate: "tech_titans" };
     at(linkHash(state));
     expect(readLink()).toEqual(state);
   });
 
   it("leaves out what is not set", () => {
-    expect(linkHash({ empire: "all", tech: null, isolate: null })).toBe("#empire=all");
-    expect(linkHash({ empire: null, tech: null, isolate: null })).toBe("");
+    expect(linkHash({ empire: "all", preset: null, tech: null, isolate: null })).toBe("#empire=all");
+    expect(linkHash({ empire: null, preset: null, tech: null, isolate: null })).toBe("");
   });
 
   it("reads a bare or empty hash as saying nothing", () => {
     at("");
-    expect(readLink()).toEqual({ empire: null, tech: null, isolate: null });
+    expect(readLink()).toEqual({ empire: null, preset: null, tech: null, isolate: null });
     at("#tech=tech_lasers_1");
-    expect(readLink()).toEqual({ empire: null, tech: "tech_lasers_1", isolate: null });
+    expect(readLink()).toEqual({ empire: null, preset: null, tech: "tech_lasers_1", isolate: null });
   });
 });

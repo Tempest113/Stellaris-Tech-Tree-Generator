@@ -1,0 +1,52 @@
+# Gigastructures' main settings presets.
+#
+# Each is a scripted effect Gigastructures runs from its menu at the start of a
+# game, clearing its menu flags and setting its own. pipeline/presets.py reads
+# which global flags each leaves set, and every technology, event and weight
+# that tests one of them is read under each preset.
+#
+# The default leans the same way as assuming every DLC is owned: as much of the
+# tree as possible. Gigastructures itself is balanced around Giga-Experience.
+
+default = "arcade"
+
+# Crises are left to the player. Whatever preset is picked, its crisis settings
+# -- whether the Kaiser can take over, how hard the Blokkats are, whether the
+# Compound or the Sirens appear -- are not read, so a preset hides no crisis
+# technology. Crisis rows are separate, so a player who skips a crisis is not
+# crowded by its technologies. Every flag these effects set or clear is left
+# open, as are the listed flags presets set that no reset effect names.
+[unsettled]
+effects = [
+    "remove_flags_katzen",
+    "remove_flags_blokkat",
+    "set_blokkat_difficulty",
+    "remove_variables_sirens",
+    "set_siren_difficulty",
+    "remove_flags_aeternum_difficulty",
+    "set_aeternum_difficulty",
+    "remove_flags_compound",
+]
+flags = ["giga_blokkats_enabled"]
+
+[[preset]]
+key = "arcade"
+effect = "giga_preset_arcade"
+name = "Arcade Preset"
+
+[[preset]]
+key = "giga-experience"
+effect = "giga_preset_gigas_experience"
+name = "Giga-Experience Preset"
+
+[[preset]]
+key = "vanilla-plus"
+effect = "giga_preset_vanilla_plus"
+name = "Vanilla Plus Preset"
+
+# Settings changed by hand: no effect, so every settings flag is left open and
+# nothing that depends on one is hidden -- the research-capped Management
+# Protocols, the Stellarite and Improbable Kaiser's technologies.
+[[preset]]
+key = "non-default"
+name = "Non-Default Settings"

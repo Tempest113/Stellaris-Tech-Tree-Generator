@@ -136,6 +136,9 @@ class Profile:
     nomadic: bool = False
     wilderness: bool = False
     beastmasters: bool = False
+    #: A Gigastructures settings preset (see :mod:`pipeline.presets`), or None
+    #: when the tree is read without one.
+    preset: str | None = None
 
     @property
     def gestalt(self) -> bool:
@@ -182,6 +185,10 @@ class Definitions:
     #: else -- a technology of a mod not loaded -- never holds. ``None`` when
     #: unknown.
     technologies: frozenset[str] | None = None
+    #: The same as ``flag_words``, for ``has_global_flag``.
+    global_flag_words: frozenset[str] | None = None
+    #: Preset key -> the global flags it leaves set or cleared.
+    presets: dict[str, dict[str, TV]] = field(default_factory=dict)
 
 
 def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitions:
@@ -226,9 +233,11 @@ def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitio
         if pair.key in ("has_valid_civic", "has_civic") and isinstance(pair.value, Scalar)
     ) if beastmasters is not None else ()
 
+    country_words, global_words = _flag_words(load_order)
     return Definitions(
         triggers=triggers,
-        flag_words=_flag_words(load_order),
+        flag_words=country_words,
+        global_flag_words=global_words,
         civics=blocks("common/governments/civics"),
         perks=blocks("common/ascension_perks"),
         traditions=traditions,
@@ -239,26 +248,40 @@ def load_definitions(load_order: LoadOrder, triggers: TriggerIndex) -> Definitio
     )
 
 
-_FLAG_TEST = re.compile(rb"has_country_flag\s*=\s*\"?[A-Za-z0-9_.:-]+")
+_FLAG_TEST = re.compile(rb"has_country_flag\s*=\s*\"?([A-Za-z0-9_.:-]+)")
+_GLOBAL_FLAG_TEST = re.compile(rb"has_global_flag\s*=\s*\"?([A-Za-z0-9_.:-]+)")
 _WORD = re.compile(rb"[A-Za-z0-9_.:-]+")
 
 
-def _flag_words(load_order: LoadOrder) -> frozenset[str]:
-    """Words used anywhere in script except as a tested flag.
+def _flag_words(load_order: LoadOrder) -> tuple[frozenset[str], frozenset[str]]:
+    """Words used anywhere in script except as a tested country flag, and as a tested global flag.
 
     Deliberately crude, so it errs towards "set": a flag named in a setter, an
     inline script parameter, a removal or a comment all count. Overridden files
     are read too, for the same reason.
     """
-    words: set[bytes] = set()
+    from collections import Counter
+
+    everywhere: Counter[bytes] = Counter()
+    country: Counter[bytes] = Counter()
+    global_: Counter[bytes] = Counter()
     for source in load_order:
         for directory in ("common", "events"):
             root = source.root / directory
             if not root.is_dir():
                 continue
             for path in root.rglob("*.txt"):
-                words.update(_WORD.findall(_FLAG_TEST.sub(b" ", path.read_bytes())))
-    return frozenset(w.decode("utf-8", "replace") for w in words)
+                data = path.read_bytes()
+                everywhere.update(_WORD.findall(data))
+                country.update(_FLAG_TEST.findall(data))
+                global_.update(_GLOBAL_FLAG_TEST.findall(data))
+
+    def outside(tests: Counter[bytes]) -> frozenset[str]:
+        return frozenset(
+            word.decode("utf-8", "replace") for word, count in everywhere.items() if count > tests.get(word, 0)
+        )
+
+    return outside(country), outside(global_)
 
 
 def _pairs_deep(block: Block):
@@ -310,6 +333,8 @@ class Evaluator:
         self.chosen_origin = origin
         self.chosen_civics = civics
         self.impossible_technologies = impossible_technologies
+        #: Global flags settled by the profile's preset; None reads every one as open.
+        self.global_flags: dict[str, TV] | None = definitions.presets.get(profile.preset) if profile.preset else None
         self._available: dict[tuple[str, str], TV] = {}
         self._pending: set[tuple[str, str]] = set()
 
@@ -448,6 +473,8 @@ class Evaluator:
             # `fotd_hunter` tagged with a scope when it is set.
             name = text.split("@", 1)[0]
             return TV.UNKNOWN if name in self.defs.flag_words else TV.FALSE
+        if lowered == "has_global_flag" and not yes_no:
+            return self.global_flag(text.split("@", 1)[0])
         if lowered == "is_nomadic" and yes_no:
             return polar(_truth(self.profile.nomadic))
         if lowered == "uses_ship_category":
@@ -472,6 +499,15 @@ class Evaluator:
             body = self.defs.triggers.get(key)
             if body is not None and depth < MAX_DEPTH:
                 return polar(self.trigger(body, depth + 1))
+        return TV.UNKNOWN
+
+    def global_flag(self, name: str) -> TV:
+        """Whether a global flag is set: as the preset leaves it, or false if nothing ever sets it."""
+        if self.global_flags is not None and name in self.global_flags:
+            return self.global_flags[name]
+        words = self.defs.global_flag_words
+        if words is not None and name not in words:
+            return TV.FALSE
         return TV.UNKNOWN
 
     def _species_item(self, item) -> TV:

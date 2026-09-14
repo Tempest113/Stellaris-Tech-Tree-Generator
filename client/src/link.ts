@@ -1,8 +1,9 @@
 /**
  * The view, in the address bar.
  *
- * `#empire=hive-bio-ships&tech=tech_titans&isolate=tech_titans`: the empire
- * profile, the pinned technology and the isolated lineage, by stable keys, so
+ * `#empire=hive-bio-ships&preset=arcade&tech=tech_titans&isolate=tech_titans`:
+ * the empire profile, the settings preset, the pinned technology and the
+ * isolated lineage, by stable keys, so
  * a link copied from the address bar opens the same view. A hash rather than a
  * query string, because the page is static and the server never sees it.
  *
@@ -15,6 +16,8 @@ export const ALL_EMPIRES = "all";
 export interface LinkState {
   /** A profile key, `ALL_EMPIRES`, or null when the link does not say. */
   empire: string | null;
+  /** A Gigastructures settings preset key, or null when the link does not say. */
+  preset: string | null;
   tech: string | null;
   isolate: string | null;
 }
@@ -23,6 +26,7 @@ export function readLink(): LinkState {
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   return {
     empire: params.get("empire"),
+    preset: params.get("preset"),
     tech: params.get("tech"),
     isolate: params.get("isolate"),
   };
@@ -31,6 +35,7 @@ export function readLink(): LinkState {
 export function linkHash(state: LinkState): string {
   const params = new URLSearchParams();
   if (state.empire !== null) params.set("empire", state.empire);
+  if (state.preset !== null) params.set("preset", state.preset);
   if (state.tech !== null) params.set("tech", state.tech);
   if (state.isolate !== null) params.set("isolate", state.isolate);
   const text = params.toString();

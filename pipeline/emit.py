@@ -55,6 +55,8 @@ EDGE_KINDS = (EdgeKind.PREREQUISITE, EdgeKind.ALTERNATIVE, EdgeKind.POTENTIAL_GA
 class EmitResult:
     directory: Path
     files: dict[str, int]
+    #: What each profile sees, for reports written alongside the dataset.
+    views: object = None
 
     def summary(self) -> str:
         total = sum(self.files.values())
@@ -444,9 +446,13 @@ def emit(
                 "l": p.label,
                 "a": p.authority,
                 "t": [name for name, _ in profiles_mod.TOGGLES if getattr(p, name)],
+                **({"s": p.preset} if p.preset else {}),
             }
             for p in extraction.profiles
         ],
+        # Gigastructures' settings presets; a profile's `s` names one.
+        "presets": [{"k": s.key, "l": s.name} for s in extraction.preset_config.presets],
+        "defaultPreset": extraction.preset_config.default,
         "authorities": [[key, profiles_mod.AUTHORITY_LABELS[key]] for key in profiles_mod.AUTHORITIES],
         "toggles": [list(toggle) for toggle in profiles_mod.TOGGLES],
         "rows": [
@@ -769,4 +775,4 @@ def emit(
     for sheet in sheets:
         files[sheet] = (directory / sheet).stat().st_size
 
-    return EmitResult(directory=directory, files=files)
+    return EmitResult(directory=directory, files=files, views=views)

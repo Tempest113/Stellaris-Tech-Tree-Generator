@@ -107,3 +107,31 @@ describe("applyView", () => {
     expect(data.view.edges).toEqual([[0, 2, 1]]);
   });
 });
+
+describe("presets", () => {
+  const raw = () =>
+    dataset([node("a", 0, 0, { hp: "4" }), node("b", 0, 1, { hp: "c" })], [], {
+      profiles: [
+        { k: "regular", l: "Individualist", a: "regular", t: [], s: "arcade" },
+        { k: "hive", l: "Hive Mind", a: "hive", t: [], s: "arcade" },
+        { k: "regular", l: "Individualist", a: "regular", t: [], s: "vanilla" },
+        { k: "hive", l: "Hive Mind", a: "hive", t: [], s: "vanilla" },
+      ],
+      presets: [
+        { k: "arcade", l: "Arcade" },
+        { k: "vanilla", l: "Vanilla" },
+      ],
+      defaultPreset: "arcade",
+    });
+
+  it("with every empire, hides a slot only where every empire of the preset loses it", () => {
+    const data = expand(raw());
+    expect(data.view.preset).toBe("arcade");
+    expect(data.nodes.map((n) => n.hidden)).toEqual([false, false]);
+    applyView(data, null, null, "vanilla");
+    // `a` is lost by one vanilla empire only; `b` by both.
+    expect(data.nodes.map((n) => n.hidden)).toEqual([false, true]);
+    applyView(data, 2, null);
+    expect(data.nodes.map((n) => n.hidden)).toEqual([true, true]);
+  });
+});

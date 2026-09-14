@@ -87,6 +87,8 @@ export interface RawProfile {
   a: string;
   /** Toggles switched on. */
   t: string[];
+  /** The Gigastructures settings preset this profile is read under. */
+  s?: string;
 }
 
 export interface RawDataset {
@@ -99,8 +101,10 @@ export interface RawDataset {
    *  so CSS background scaling needs the real figure. */
   atlas: { sheets: string[]; cell: number; perRow: number; perSheet: number; size: number };
   edgeKinds: string[];
-  /** Every empire an empire can be created as; masks index this list. */
+  /** Every empire an empire can be created as, under every preset; masks index this list. */
   profiles: RawProfile[];
+  presets?: { k: string; l: string }[];
+  defaultPreset?: string | null;
   authorities: [string, string][];
   toggles: [string, string][];
   rows: RawRow[];
@@ -185,6 +189,8 @@ export interface TechNode {
 export interface View {
   /** Index into `profiles`, or null for every empire at once. */
   profile: number | null;
+  /** With every empire at once, the preset they share, or null for none. */
+  preset: string | null;
   /** The node indices an isolated lineage keeps, or null for the whole tree. */
   isolated: Set<number> | null;
   edges: [number, number, number][];
@@ -209,10 +215,31 @@ export function profileBit(profile: number): bigint {
   return 1n << BigInt(profile);
 }
 
+/** Every profile read under `preset`. */
+export function presetMask(data: Dataset, preset: string | null): bigint {
+  let bits = 0n;
+  data.raw.profiles.forEach((p, i) => {
+    if ((p.s ?? null) === preset) bits |= profileBit(i);
+  });
+  return bits;
+}
+
+/**
+ * Whether something masked `closed` -- a hidden slot, a closed route -- is out
+ * of the current view: for the chosen profile, or with every empire at once
+ * under a preset, for every one of them.
+ */
+export function closedInView(data: Dataset, closed: bigint): boolean {
+  const { profile, preset } = data.view;
+  if (profile !== null) return (closed & profileBit(profile)) !== 0n;
+  if (preset === null) return false;
+  const all = presetMask(data, preset);
+  return all !== 0n && (closed & all) === all;
+}
+
 /** Whether the current profile never shows this slot, isolation aside. */
 export function hiddenByProfile(data: Dataset, index: number): boolean {
-  const profile = data.view.profile;
-  return profile !== null && (data.nodes[index]!.hiddenIn & profileBit(profile)) !== 0n;
+  return closedInView(data, data.nodes[index]!.hiddenIn);
 }
 
 export function expand(raw: RawDataset): Dataset {
@@ -285,9 +312,9 @@ export function expand(raw: RawDataset): Dataset {
     nodes,
     byKey,
     dependencies,
-    view: { profile: null, isolated: null, edges: [], geometry: undefined as unknown as Geometry },
+    view: { profile: null, preset: null, isolated: null, edges: [], geometry: undefined as unknown as Geometry },
   };
-  applyView(data, null, null);
+  applyView(data, null, null, raw.defaultPreset ?? raw.presets?.[0]?.k ?? null);
   return data;
 }
 
@@ -300,12 +327,21 @@ export function expand(raw: RawDataset): Dataset {
  * and closes up the gaps. An isolated view also drops every column left empty,
  * so a lineage reads as one compact tree.
  */
-export function applyView(data: Dataset, profile: number | null, isolated: Set<number> | null): void {
+export function applyView(
+  data: Dataset,
+  profile: number | null,
+  isolated: Set<number> | null,
+  preset: string | null = data.view.preset,
+): void {
   const bit = profile === null ? 0n : profileBit(profile);
+  const everyone = profile === null && preset !== null ? presetMask(data, preset) : 0n;
 
   data.nodes.forEach((node, index) => {
+    // With every empire under a preset, a slot is hidden only where every one of them hides it.
     node.hidden =
-      (profile !== null && (node.hiddenIn & bit) !== 0n) || (isolated !== null && !isolated.has(index));
+      (profile !== null && (node.hiddenIn & bit) !== 0n) ||
+      (everyone !== 0n && (node.hiddenIn & everyone) === everyone) ||
+      (isolated !== null && !isolated.has(index));
     const shown =
       profile === null ? undefined : node.presentations.find((p) => (p.mask & bit) !== 0n);
     const presentation = shown ?? node.base;
@@ -345,5 +381,5 @@ export function applyView(data: Dataset, profile: number | null, isolated: Set<n
     data.nodes[target]?.incoming.push(source);
   }
 
-  data.view = { profile, isolated, edges, geometry: computeGeometry(data, isolated !== null) };
+  data.view = { profile, preset, isolated, edges, geometry: computeGeometry(data, isolated !== null) };
 }

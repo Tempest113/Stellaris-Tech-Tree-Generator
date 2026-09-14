@@ -83,6 +83,10 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
           Technologies it can never get are hidden, renamed ones take the name it sees,
           and requirements and ways in it cannot use are left out. Only combinations the
           empire designer allows are offered.</p>
+        <p><b>Settings</b>: the Gigastructures settings preset chosen at the start of the game.
+          A technology its settings switch off is hidden, and so is anything needing one.
+          Choose <b>Non-Default Settings</b> if you changed settings by hand: nothing that
+          depends on a setting is hidden then.</p>
         <p><b>Links</b>: the address bar keeps the empire, the pinned technology and any
           isolated line, so a copied address opens the same view. <b>Copy Link</b> in the details panel does this for you.</p>
       </section>
@@ -90,7 +94,7 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
       <section>
         <h3>What the Tree Assumes</h3>
         <ul>
-          <li>Every DLC is owned, and game rules are at their defaults.</li>
+          <li>Every DLC is owned, Gigastructures' settings are the chosen preset's, and other game rules are at their defaults.</li>
           <li>Costs are base costs. A few, such as the Cosmic Storms technologies, change with
             Galactic Community resolutions, which the details panel lists.</li>
           <li>Built from ${sources(raw)}.</li>

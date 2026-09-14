@@ -20,6 +20,7 @@ import { mountSearch } from "./search";
 import { Renderer, emptySelection } from "./renderer";
 import {
   applyView,
+  closedInView,
   expand,
   hiddenByProfile,
   mask,
@@ -58,19 +59,21 @@ async function main(): Promise<void> {
 
   const guide = mountGuide(document.getElementById("guide-button") as HTMLButtonElement, guideDialog, raw);
 
-  const picker = mountProfilePicker(profileBar, raw, (profile) => {
-    applyView(data, profile, null);
+  const picker = mountProfilePicker(profileBar, raw, (profile, preset) => {
+    applyView(data, profile, null, preset);
     isolatedRoot = null;
     refreshView();
     selection.pinned = null;
     select(null, true);
   });
-  // A link's empire wins over the one remembered, without replacing it.
+  // A link's empire and preset win over the ones remembered, without replacing them.
   const link = readLink();
-  const linkedProfile = profileFromLink(link.empire);
-  if (linkedProfile !== undefined) picker.show(linkedProfile);
-  const initialProfile = linkedProfile !== undefined ? linkedProfile : picker.current;
-  if (initialProfile !== null) applyView(data, initialProfile, null);
+  const linkedPreset = presetFromLink(link.preset);
+  const initialPreset = linkedPreset ?? picker.preset;
+  const remembered = picker.current === null ? null : raw.profiles[picker.current]!.k;
+  const linkedProfile = profileFromLink(link.empire ?? remembered ?? ALL_EMPIRES, initialPreset);
+  if (link.empire !== null || linkedPreset !== null) picker.show(linkedProfile ?? null, initialPreset);
+  applyView(data, picker.current, null, picker.preset);
 
   const search = mountSearch(
     document.getElementById("search") as HTMLElement,
@@ -124,8 +127,10 @@ async function main(): Promise<void> {
     const technologies = new Set(visible.map((node) => node.key)).size;
     const rows = data.view.geometry.rows.filter((row) => row.shown).length;
     const profile = data.view.profile === null ? "All empires" : raw.profiles[data.view.profile]!.l;
+    const presetKey = data.view.profile === null ? data.view.preset : raw.profiles[data.view.profile]!.s;
+    const preset = raw.presets?.find((p) => p.k === presetKey)?.l;
     status.textContent =
-      `${profile} · ${technologies} technologies · ${data.view.edges.length} dependencies · ` +
+      `${profile}${preset ? ` · ${preset}` : ""} · ${technologies} technologies · ${data.view.edges.length} dependencies · ` +
       `${rows} rows · ${sources.join(" + ")}`;
   }
   showStatus();
@@ -306,17 +311,28 @@ async function main(): Promise<void> {
   /** Set while a link is being applied, so applying it writes no history of its own. */
   let applyingLink = false;
 
-  function profileFromLink(empire: string | null): number | null | undefined {
+  function presetFromLink(preset: string | null): string | null {
+    return raw.presets?.some((p) => p.k === preset) ? preset : null;
+  }
+
+  function profileFromLink(empire: string | null, preset: string | null): number | null | undefined {
     if (empire === null) return undefined;
     if (empire === ALL_EMPIRES) return null;
-    const index = raw.profiles.findIndex((p) => p.k === empire);
+    const index = raw.profiles.findIndex((p) => p.k === empire && (p.s ?? null) === preset);
     return index >= 0 ? index : undefined;
+  }
+
+  /** The preset the view is read under. */
+  function currentPreset(): string | null {
+    const profile = data.view.profile;
+    return profile === null ? data.view.preset : (raw.profiles[profile]!.s ?? null);
   }
 
   function linkState(): LinkState {
     const profile = data.view.profile;
     return {
       empire: profile === null ? ALL_EMPIRES : raw.profiles[profile]!.k,
+      preset: currentPreset(),
       tech: selection.pinned === null ? null : data.nodes[selection.pinned]!.key,
       isolate: data.view.isolated === null || isolatedRoot === null ? null : data.nodes[isolatedRoot]!.key,
     };
@@ -339,10 +355,18 @@ async function main(): Promise<void> {
   function applyLink(state: LinkState): void {
     applyingLink = true;
     try {
-      const profile = profileFromLink(state.empire);
-      if (profile !== undefined && profile !== data.view.profile) {
-        picker.show(profile);
-        applyView(data, profile, null);
+      const preset = presetFromLink(state.preset) ?? currentPreset();
+      const found = profileFromLink(state.empire, preset);
+      // A link naming a preset but no empire keeps the empire kind shown, under that preset.
+      const profile =
+        found !== undefined
+          ? found
+          : data.view.profile === null
+            ? null
+            : profileFromLink(raw.profiles[data.view.profile]!.k, preset) ?? null;
+      if (profile !== data.view.profile || preset !== currentPreset()) {
+        picker.show(profile, preset);
+        applyView(data, profile, null, preset);
         isolatedRoot = null;
         refreshView();
         selection.pinned = null;
@@ -574,25 +598,21 @@ async function main(): Promise<void> {
    * with no Mechromancy line.
    */
   function forProfile(gates: Gate[] | undefined): Gate[] | undefined {
-    const profile = data.view.profile;
-    if (!gates || profile === null) return gates;
-    const bit = profileBit(profile);
+    if (!gates) return gates;
     return gates
       .map((gate) => ({
         ...gate,
-        a: gate.a.filter((alternative) => alternative.every((c) => (mask(c.x) & bit) === 0n)),
+        a: gate.a.filter((alternative) => alternative.every((c) => !closedInView(data, mask(c.x)))),
       }))
       .filter((gate) => gate.a.length > 0);
   }
 
   /** The ways in the current profile can take: a hive mind is not offered a militarist's project. */
   function routesForProfile(routes: Route[] | undefined): Route[] | undefined {
-    const profile = data.view.profile;
-    if (!routes || profile === null) return routes;
-    const bit = profileBit(profile);
+    if (!routes) return routes;
     return routes
-      .filter((route) => (mask(route.x) & bit) === 0n)
-      .map((route) => ({ ...route, s: route.s?.filter((name) => (mask(name.x) & bit) === 0n) }));
+      .filter((route) => !closedInView(data, mask(route.x)))
+      .map((route) => ({ ...route, s: route.s?.filter((name) => !closedInView(data, mask(name.x))) }));
   }
 
   /** A gate as plain text: alternatives joined by "or", conditions by "+". */

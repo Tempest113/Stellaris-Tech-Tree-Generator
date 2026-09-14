@@ -20,12 +20,13 @@ is deliberately awkward to get at and always the *expanded* form.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Iterator
 
 from .clausewitz import Block, Scalar
 from .clausewitz.nodes import Node
+from . import presets as presets_mod
 from . import profiles as profiles_mod
 from . import unlocks as unlocks_mod
 from .gates import (
@@ -517,6 +518,8 @@ class Extraction:
     #: What profiles are read against, and every profile an empire can be.
     profile_definitions: profiles_mod.Definitions | None = None
     profiles: tuple[profiles_mod.Profile, ...] = ()
+    #: Gigastructures' settings presets, each read with every profile.
+    preset_config: presets_mod.PresetConfig = field(default_factory=presets_mod.PresetConfig)
     #: Technologies whose potential no player can meet. Kept as records, so
     #: anything naming them still resolves, but left out of the tree.
     disabled: frozenset[str] = frozenset()
@@ -617,7 +620,15 @@ def extract(
     extraction.unlocks = unlocks_mod.build_index(load_order, config)
     extraction.profile_definitions = profiles_mod.load_definitions(load_order, triggers)
     extraction.profile_definitions.technologies = frozenset(extraction.technologies)
-    extraction.profiles = profiles_mod.valid_profiles(extraction.profile_definitions)
+    # Every kind of empire, under every Gigastructures settings preset.
+    extraction.preset_config = presets_mod.load_config()
+    extraction.profile_definitions.presets = presets_mod.load_presets(
+        load_order, extraction.preset_config, extraction.profile_definitions
+    )
+    kinds = profiles_mod.valid_profiles(extraction.profile_definitions)
+    extraction.profiles = tuple(
+        replace(kind, preset=preset.key) for preset in extraction.preset_config.presets for kind in kinds
+    ) or kinds
     extraction.crisis_levels = crisis_levels(load_order)
     # A way in no empire can take -- an AI-only branch, a tradition tree the
     # owned DLC replaces -- is no way in, and would otherwise name a gate or
@@ -649,8 +660,11 @@ def extract(
         flags=flag_conditions,
         defined=defined,
     )
+    # Disabled means no empire can have it under any settings, presets or not:
+    # a technology only a custom Gigastructures setting enables stays in the
+    # tree, hidden under each preset that does not.
     extraction.disabled = profiles_mod.disabled(
-        extraction.technologies, extraction.profile_definitions, extraction.profiles
+        extraction.technologies, extraction.profile_definitions, kinds
     )
     extraction.perk_contexts = perk_contexts(load_order)
     extraction.tradition_trees = tradition_trees(load_order)
