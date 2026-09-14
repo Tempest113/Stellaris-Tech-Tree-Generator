@@ -75,6 +75,8 @@ class BuildConfig:
     output_root: Path = Path("build")
     #: Localisation language to extract.
     language: str = "english"
+    #: The page's name, shown in the browser tab and in link previews.
+    title: str = "Stellaris Tech Tree"
     #: Where players report mistakes: ``issues`` (a GitHub issues URL) and
     #: ``discord`` (an invite). Only the ones set are offered on the page.
     links: dict[str, str] = field(default_factory=dict)
@@ -161,6 +163,7 @@ def load(path: Path | str = DEFAULT_CONFIG) -> BuildConfig:
         vendor_root=Path(build.get("vendor_root", "vendor")),
         output_root=Path(build.get("output_root", "build")),
         language=build.get("language", "english"),
+        title=str(data.get("site", {}).get("title", "")).strip() or BuildConfig.title,
         links={
             key: str(value).strip()
             for key, value in data.get("links", {}).items()

@@ -170,6 +170,7 @@ def emit(
     assignment: RowAssignment | None,
     directory: Path | str,
     links: dict[str, str] | None = None,
+    title: str | None = None,
 ) -> EmitResult:
     """Write the dataset, the detail payload and the icon atlas.
 
@@ -442,6 +443,7 @@ def emit(
                 "columns": layout.columns,
             },
             **({"links": dict(links)} if links else {}),
+            **({"title": title} if title else {}),
         },
         "atlas": {"sheets": sheets, "cell": CELL, "perRow": PER_ROW, "perSheet": PER_SHEET, "size": SHEET},
         "edgeKinds": [k.value for k in EDGE_KINDS],

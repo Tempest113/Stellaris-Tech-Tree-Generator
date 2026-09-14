@@ -38,6 +38,14 @@ def test_a_build_names_its_own_config_files_and_leaves_out_the_rest(tmp_path: Pa
     assert config.unlocks is None and config.presets is None
 
 
+def test_the_page_title_comes_from_the_site_table(tmp_path: Path):
+    path = tmp_path / "build.toml"
+    path.write_text('[site]\ntitle = "Some Mod Tech Tree"\n', encoding="utf-8")
+    assert build_config.load(path).title == "Some Mod Tech Tree"
+    path.write_text("", encoding="utf-8")
+    assert build_config.load(path).title == "Stellaris Tech Tree"
+
+
 def test_a_config_file_that_does_not_exist_stops_the_build(tmp_path: Path):
     path = tmp_path / "build.toml"
     path.write_text('[build]\npresets = "nowhere/presets.toml"\n', encoding="utf-8")

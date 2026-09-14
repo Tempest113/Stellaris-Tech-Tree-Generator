@@ -209,6 +209,11 @@ Stale configuration stops the build instead of quietly producing a wrong tree.
   needs it, or two cards in one place. This is a bug in the pipeline, not in
   the configuration.
 
+## Page title
+
+`title` under `[site]` in `config/build.toml` names the page in the browser tab
+and in link previews. Rebuild the dataset, then the site, after changing it.
+
 ## Report links
 
 `[links]` in `config/build.toml` sets where the page sends players who find a

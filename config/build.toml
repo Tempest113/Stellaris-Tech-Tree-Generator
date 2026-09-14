@@ -21,6 +21,10 @@ rows = "config/rows.toml"
 unlocks = "config/unlocks.toml"
 presets = "config/presets.toml"
 
+[site]
+# The page's name, shown in the browser tab and in link previews.
+title = "Gigastructures Tech Tree"
+
 # Where players report a mistake. The details panel offers a pre-filled GitHub
 # issue and a report to copy for Discord; each is shown only once it is set.
 [links]

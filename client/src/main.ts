@@ -57,6 +57,7 @@ async function main(): Promise<void> {
   status.textContent = "Loading dataset…";
   const raw = (await fetch("data/dataset.json").then((r) => r.json())) as RawDataset;
   const data = expand(raw);
+  if (raw.meta.title) document.title = raw.meta.title;
 
   const guide = mountGuide(document.getElementById("guide-button") as HTMLButtonElement, guideDialog, raw);
 

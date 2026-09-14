@@ -100,6 +100,8 @@ export interface RawDataset {
     counts: Record<string, number>;
     /** Where players report mistakes; only the ones set are offered. */
     links?: { issues?: string; discord?: string };
+    /** The page's name, from the build config. Built into index.html too. */
+    title?: string;
   };
   /** `size` is the sheet's pixel width and height; `perRow * cell` is smaller,
    *  so CSS background scaling needs the real figure. */
