@@ -12,6 +12,7 @@
  *
  * Crisis rows take a hue per crisis rather than an area hue, because a crisis
  * chain spans all three research areas and tinting it by any one would be a lie.
+ * Those hues belong to the load order, so they come from its rows config.
  *
  * Edges carry their kind in the dash pattern, not in colour, which keeps the
  * three kinds distinguishable for a red-green colourblind reader.
@@ -32,18 +33,7 @@ export const AREA_ACCENT: Record<string, string> = {
   engineering: "#e0a458",
 };
 
-/** Keyed by crisis row key, from `config/rows.toml`. */
-export const CRISIS_ACCENT: Record<string, string> = {
-  blokkats: "#52d97e",
-  sirens: "#b07be0",
-  aeternum: "#e07fae",
-  /** Deep violet, from the hue of Stellaris' own dark matter resource icon,
-   *  lifted enough to stay legible as label text. */
-  compound: "#6e4ad8",
-  katzen: "#d8bd5a",
-};
-
-/** Fallback for a crisis row the palette does not know yet. */
+/** For a row with no colour of its own: a crisis row its config gives none. */
 export const STUB = "#726e75";
 
 export const FLAG = {
@@ -74,8 +64,9 @@ export const FONT = {
   data: 'ui-monospace, "Cascadia Mono", "JetBrains Mono", monospace',
 };
 
-export function rowAccent(group: string, key: string): string {
-  if (group === "crisis") return CRISIS_ACCENT[key] ?? STUB;
+/** A row's colour: its area's, or for a crisis row the one its config gives. */
+export function rowAccent(group: string, colour?: string): string {
+  if (group === "crisis") return colour ?? STUB;
   return AREA_ACCENT[group] ?? STUB;
 }
 

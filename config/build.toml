@@ -1,8 +1,9 @@
 # Build configuration for the published Gigastructural Engineering tech tree.
 #
-# Nothing about Gigastructures is hard-coded in the pipeline. This file is the
-# only place the published build's identity lives; point it somewhere else and
-# the same pipeline produces a tree for a different load order.
+# Nothing about Gigastructures is hard-coded in the pipeline. This file, and the
+# configuration files it names below, are the only place the published build's
+# identity lives; point them somewhere else and the same pipeline produces a
+# tree for a different load order. docs/usage-guide.md says how.
 
 [game]
 # Auto-discovered through Steam by default. Set this, or the STELLARIS_PATH
@@ -13,12 +14,18 @@
 vendor_root = "vendor"
 output_root = "build"
 language = "english"
+# This load order's own configuration. Each is optional: leave one out and the
+# build has none of it (no crisis rows, no names for unlock conditions, no
+# settings presets). The shipped files describe Gigastructures only.
+rows = "config/rows.toml"
+unlocks = "config/unlocks.toml"
+presets = "config/presets.toml"
 
 # Where players report a mistake. The details panel offers a pre-filled GitHub
 # issue and a report to copy for Discord; each is shown only once it is set.
 [links]
 issues = ""   # e.g. "https://github.com/<owner>/<repo>/issues"
-discord = ""  # an invite to the Gigastructures Discord
+discord = "https://discord.gg/gpBuCf3GZB"  # Gigastructures Discord, permanent invite
 
 # --- Load order, applied over the base game in the order listed -------------
 

@@ -11,7 +11,7 @@ from pipeline import layout as layout_mod
 from pipeline import rows as rows_mod
 from pipeline.clausewitz import parse
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
-from pipeline.presets import flags_after, flags_named, load_config
+from pipeline.presets import PresetConfig, PresetConfigError, Preset, flags_after, flags_named, load_config, load_presets
 from pipeline.profiles import TV, Definitions, compute_views
 from pipeline.records import extract
 from pipeline.triggers import TriggerIndex
@@ -37,11 +37,14 @@ def test_a_preset_clears_then_sets_and_follows_its_conditions():
         }
         """
     )
-    flags = flags_after("preset", effects, Definitions(triggers=TriggerIndex(definitions={})))
+    flags = flags_after(
+        "preset", effects, Definitions(triggers=TriggerIndex(definitions={})), ("giga_game_started",)
+    )
     assert flags["warplanet_disabled"] is TV.TRUE
     assert flags["old_mode"] is TV.FALSE
     assert flags["at_start"] is TV.TRUE
     assert "mid_game" not in flags or flags["mid_game"] is TV.FALSE
+    assert "giga_game_started" not in flags
     assert flags["otherwise"] is TV.TRUE
     assert flags["multiplayer"] is TV.UNKNOWN
     assert flags["rolled"] is TV.UNKNOWN
@@ -60,7 +63,17 @@ def test_the_flags_an_effect_names_are_found_through_what_it_calls():
 def test_the_shipped_config_defaults_to_arcade():
     config = load_config()
     assert config.default == "arcade"
+    assert config.before_start == ("giga_game_started",)
     assert [p.key for p in config.presets] == ["arcade", "giga-experience", "vanilla-plus", "non-default"]
+
+
+@pytest.mark.corpus
+def test_a_preset_naming_an_effect_the_load_order_lacks_stops_the_build(install):
+    """A preset renamed by a mod update must not read as one that sets nothing."""
+    load_order = LoadOrder().add(base_game_source(install.game, install.version))
+    config = PresetConfig(presets=(Preset("gone", "giga_preset_that_does_not_exist", "Gone"),))
+    with pytest.raises(PresetConfigError, match="giga_preset_that_does_not_exist"):
+        load_presets(load_order, config, Definitions(triggers=TriggerIndex(definitions={})))
 
 
 @pytest.fixture(scope="module")

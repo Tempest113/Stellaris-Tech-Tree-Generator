@@ -64,6 +64,17 @@ class CrisisRow:
     exclude: tuple[str, ...] = ()
     #: Free-text note carried into the report, for recording judgement calls.
     note: str = ""
+    #: The row's colour on the page, ``#rrggbb``; a neutral grey when unset.
+    colour: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewRule:
+    """Technologies worth a second look when no crisis row takes them."""
+
+    reason: str
+    source_files: tuple[str, ...] = ()
+    key_prefixes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -135,6 +146,7 @@ def load_config(path: Path | str = DEFAULT_ROWS_CONFIG) -> tuple[CrisisRow, ...]
                 reachable_from=tuple(table.get("reachable_from", ())),
                 exclude=tuple(table.get("exclude", ())),
                 note=table.get("note", ""),
+                colour=_colour(table.get("colour"), f"{path}: crisis {key!r}"),
             )
         )
 
@@ -143,6 +155,57 @@ def load_config(path: Path | str = DEFAULT_ROWS_CONFIG) -> tuple[CrisisRow, ...]
     if duplicates:
         raise RowConfigError(f"{path}: duplicate crisis keys: {', '.join(sorted(duplicates))}")
     return tuple(crises)
+
+
+def _colour(value, where: str) -> str | None:
+    if value is None:
+        return None
+    valid = isinstance(value, str) and len(value) == 7 and value.startswith("#")
+    if valid:
+        try:
+            int(value[1:], 16)
+        except ValueError:
+            valid = False
+    if not valid:
+        raise RowConfigError(f"{where}: colour must be #rrggbb, not {value!r}")
+    return value
+
+
+def load_review(path: Path | str = DEFAULT_ROWS_CONFIG) -> tuple[ReviewRule, ...]:
+    """The ``[[review]]`` rules: what the report asks a person to look at."""
+    path = Path(path)
+    if not path.is_file():
+        return ()
+    with path.open("rb") as handle:
+        data = tomllib.load(handle)
+    rules = []
+    for table in data.get("review", []):
+        if not table.get("reason"):
+            raise RowConfigError(f"{path}: every [[review]] needs a 'reason'")
+        rules.append(
+            ReviewRule(
+                reason=table["reason"],
+                source_files=tuple(table.get("source_files", ())),
+                key_prefixes=tuple(table.get("key_prefixes", ())),
+            )
+        )
+    return tuple(rules)
+
+
+def review_hints(extraction: Extraction, rules: tuple[ReviewRule, ...]) -> dict[str, list[str]]:
+    """Technology key -> why a person should check where it is placed."""
+    hints: dict[str, list[str]] = {}
+    for key, record in extraction.technologies.items():
+        origin = record.origin.relative if record.origin else ""
+        why: list[str] = []
+        for rule in rules:
+            if origin in rule.source_files:
+                why.append(f"declared in {origin} ({rule.reason})")
+            if rule.key_prefixes and key.startswith(rule.key_prefixes):
+                why.append(rule.reason)
+        if why:
+            hints[key] = why
+    return hints
 
 
 def assign(

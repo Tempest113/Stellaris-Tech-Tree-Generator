@@ -16,7 +16,7 @@ export const ALL_EMPIRES = "all";
 export interface LinkState {
   /** A profile key, `ALL_EMPIRES`, or null when the link does not say. */
   empire: string | null;
-  /** A Gigastructures settings preset key, or null when the link does not say. */
+  /** A settings preset key, or null when the link does not say. */
   preset: string | null;
   tech: string | null;
   isolate: string | null;

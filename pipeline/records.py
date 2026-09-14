@@ -518,7 +518,7 @@ class Extraction:
     #: What profiles are read against, and every profile an empire can be.
     profile_definitions: profiles_mod.Definitions | None = None
     profiles: tuple[profiles_mod.Profile, ...] = ()
-    #: Gigastructures' settings presets, each read with every profile.
+    #: The load order's settings presets, each read with every profile.
     preset_config: presets_mod.PresetConfig = field(default_factory=presets_mod.PresetConfig)
     #: Technologies whose potential no player can meet. Kept as records, so
     #: anything naming them still resolves, but left out of the tree.
@@ -576,6 +576,7 @@ def extract(
     *,
     reference_load_order: LoadOrder | None = None,
     unlock_config: unlocks_mod.UnlockConfig | None = None,
+    preset_config: presets_mod.PresetConfig | None = None,
 ) -> Extraction:
     """Run the whole extraction and return canonical records.
 
@@ -620,8 +621,8 @@ def extract(
     extraction.unlocks = unlocks_mod.build_index(load_order, config)
     extraction.profile_definitions = profiles_mod.load_definitions(load_order, triggers)
     extraction.profile_definitions.technologies = frozenset(extraction.technologies)
-    # Every kind of empire, under every Gigastructures settings preset.
-    extraction.preset_config = presets_mod.load_config()
+    # Every kind of empire, under every settings preset.
+    extraction.preset_config = preset_config if preset_config is not None else presets_mod.load_config()
     extraction.profile_definitions.presets = presets_mod.load_presets(
         load_order, extraction.preset_config, extraction.profile_definitions
     )

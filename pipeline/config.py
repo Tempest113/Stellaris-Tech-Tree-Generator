@@ -1,9 +1,10 @@
 """Build configuration.
 
 One file describes a whole build: which game install, which mods in which
-order, and which sources are read for reference only. Nothing about
-Gigastructures is hard-coded in the pipeline -- it is just the mod this
-repository happens to ship a config for.
+order, which sources are read for reference only, and the load order's own
+configuration -- crisis rows, names for unlock conditions, settings presets.
+Nothing about Gigastructures is hard-coded in the pipeline -- it is just the
+mod this repository happens to ship a config for.
 """
 
 from __future__ import annotations
@@ -77,11 +78,18 @@ class BuildConfig:
     #: Where players report mistakes: ``issues`` (a GitHub issues URL) and
     #: ``discord`` (an invite). Only the ones set are offered on the page.
     links: dict[str, str] = field(default_factory=dict)
+    #: The load order's own configuration files (see ``config/``), or None for
+    #: none: no crisis rows, no names for unlock conditions, no settings presets.
+    rows: Path | None = None
+    unlocks: Path | None = None
+    presets: Path | None = None
     path: Path | None = None
 
 
 #: The report links the page knows how to offer.
 LINK_KEYS = ("issues", "discord")
+#: The load order's own configuration files a build names under ``[build]``.
+CONFIG_FILES = ("rows", "unlocks", "presets")
 
 
 def _source_from_table(table: dict, *, where: str) -> Source:
@@ -132,6 +140,13 @@ def load(path: Path | str = DEFAULT_CONFIG) -> BuildConfig:
 
     game = data.get("game", {})
     game_path = game.get("path")
+    build = data.get("build", {})
+    files: dict[str, Path | None] = {}
+    for name in CONFIG_FILES:
+        value = build.get(name)
+        files[name] = Path(value) if value else None
+        if files[name] is not None and not files[name].is_file():
+            raise ConfigError(f"{path}: [build] {name} names {value}, which does not exist")
 
     config = BuildConfig(
         game_path=Path(game_path) if game_path else None,
@@ -143,14 +158,15 @@ def load(path: Path | str = DEFAULT_CONFIG) -> BuildConfig:
             _source_from_table(t, where=f"{path} [[reference_sources]]")
             for t in data.get("reference_sources", [])
         ],
-        vendor_root=Path(data.get("build", {}).get("vendor_root", "vendor")),
-        output_root=Path(data.get("build", {}).get("output_root", "build")),
-        language=data.get("build", {}).get("language", "english"),
+        vendor_root=Path(build.get("vendor_root", "vendor")),
+        output_root=Path(build.get("output_root", "build")),
+        language=build.get("language", "english"),
         links={
             key: str(value).strip()
             for key, value in data.get("links", {}).items()
             if key in LINK_KEYS and str(value).strip()
         },
+        **files,
         path=path,
     )
 

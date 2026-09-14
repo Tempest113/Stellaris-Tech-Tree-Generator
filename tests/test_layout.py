@@ -424,3 +424,24 @@ def test_stale_row_rule_fails_the_build():
 
     with pytest.raises(rows_mod.RowConfigError, match="does not exist"):
         rows_mod.assign(extraction, graph, (crisis,))
+
+
+def test_crisis_colours_and_review_rules_come_from_the_rows_config(tmp_path):
+    from pipeline import rows as rows_mod
+
+    path = tmp_path / "rows.toml"
+    path.write_text(
+        '[[crisis]]\nkey = "x"\nname = "X"\ncolour = "#12ab34"\n\n'
+        '[[review]]\nkey_prefixes = ["tech_x_"]\nreason = "x naming"\n',
+        encoding="utf-8",
+    )
+    (crisis,) = rows_mod.load_config(path)
+    assert crisis.colour == "#12ab34"
+    extraction = Extraction()
+    for key in ("tech_x_a", "tech_y_a"):
+        extraction.technologies[key] = build_record(key, parse(f"{key} = {{ area = physics tier = 1 }}").get_first(key))
+    assert rows_mod.review_hints(extraction, rows_mod.load_review(path)) == {"tech_x_a": ["x naming"]}
+
+    path.write_text('[[crisis]]\nkey = "x"\ncolour = "green"\n', encoding="utf-8")
+    with pytest.raises(rows_mod.RowConfigError, match="#rrggbb"):
+        rows_mod.load_config(path)

@@ -180,6 +180,7 @@ def emit(
     directory.mkdir(parents=True, exist_ok=True)
 
     crisis_rows = {c.key: c.name for c in (assignment.crises if assignment else ())}
+    crisis_colours = {c.key: c.colour for c in (assignment.crises if assignment else ()) if c.colour}
     icons = extraction.icons
     config = extraction.unlock_config
     all_gates = gates_mod.with_inherited(graph, extraction.gates)
@@ -456,9 +457,14 @@ def emit(
             }
             for p in extraction.profiles
         ],
-        # Gigastructures' settings presets; a profile's `s` names one.
-        "presets": [{"k": s.key, "l": s.name} for s in extraction.preset_config.presets],
+        # The load order's settings presets; a profile's `s` names one.
+        # `open`: settings changed by hand, which leave every setting open.
+        "presets": [
+            {"k": s.key, "l": s.name, **({"open": True} if s.effect is None else {})}
+            for s in extraction.preset_config.presets
+        ],
         "defaultPreset": extraction.preset_config.default,
+        "presetLabel": extraction.preset_config.label,
         "authorities": [[key, profiles_mod.AUTHORITY_LABELS[key]] for key in profiles_mod.AUTHORITIES],
         "toggles": [list(toggle) for toggle in profiles_mod.TOGGLES],
         "rows": [
@@ -471,6 +477,7 @@ def emit(
                     if row.is_crisis
                     else localisation.get(row.category) or row.category.replace("_", " ").title()
                 ),
+                **({"colour": crisis_colours[row.category]} if row.is_crisis and row.category in crisis_colours else {}),
             }
             for row in layout.rows
         ],

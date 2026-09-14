@@ -196,7 +196,7 @@ export class Renderer {
       const box = rows[row.i];
       if (!box?.shown) continue;
       if (box.y + box.h < view.y0 || box.y > view.y1) continue;
-      const accent = rowAccent(row.group, row.key);
+      const accent = rowAccent(row.group, row.colour);
       const top = box.y + 4;
       const bottom = box.y + box.h - ROW_GUTTER / 2;
 

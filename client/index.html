@@ -116,6 +116,28 @@
         cursor: pointer;
       }
       #guide-button:hover { border-color: var(--rare); }
+      /* Phones only: opens the empire and settings, which stay folded away. */
+      #dock-toggle {
+        display: none;
+        flex: none;
+        align-items: center;
+        gap: 6px;
+        min-height: 32px;
+        padding: 0 10px;
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        font: 600 12px var(--display);
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      #dock-toggle svg { transition: transform 150ms ease-out; }
+      #dock-toggle[aria-expanded="true"] { border-color: var(--rare); }
+      #dock-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+      @media (prefers-reduced-motion: reduce) {
+        #dock-toggle svg { transition: none; }
+      }
       #isolation {
         display: flex;
         align-items: center;
@@ -522,14 +544,18 @@
         #panel .collapse svg { transform: none; }
         #panel.collapsed .collapse svg { transform: rotate(180deg); }
         #help { display: none; }
-        /* Every pixel of height counts on a phone: no section labels, and the
-           settings share a row with the empire where they fit. */
-        #dock { width: calc(100vw - 24px); flex-direction: row; flex-wrap: wrap; }
+        /* Every pixel of height counts on a phone: the dock is one row, with the
+           empire and settings folded behind a button, unlabelled when open,
+           and the settings share a row with the empire where they fit. */
+        #dock { width: calc(100vw - 24px); flex-direction: row; flex-wrap: wrap; gap: 6px; padding: 6px; }
         #dock .dock-row { flex-basis: 100%; }
+        #dock-toggle { display: flex; }
+        #dock:not(.open) .dock-section { display: none; }
         #dock .dock-label { display: none; }
         #dock .dock-section { padding-top: 0; border-top: 0; }
         #dock .dock-section:first-of-type { flex: 1 1 auto; }
-        #dock #isolation { flex-basis: 100%; }
+        /* min-width: a long name ellipsizes instead of pushing the button out. */
+        #dock #isolation { flex-basis: 100%; min-width: 0; }
       }
     </style>
   </head>
@@ -537,9 +563,13 @@
     <div id="dock" role="region" aria-label="Controls">
       <div class="dock-row">
         <div id="search" role="search"></div>
+        <button id="dock-toggle" type="button" aria-expanded="false" aria-controls="empire-section settings-section">
+          Empire
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 L5 7 L8.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
         <button id="guide-button" type="button" aria-haspopup="dialog" aria-label="Guide" title="Guide (?)">?</button>
       </div>
-      <section class="dock-section" aria-labelledby="empire-label">
+      <section class="dock-section" id="empire-section" aria-labelledby="empire-label">
         <h2 id="empire-label" class="dock-label">Empire</h2>
         <div id="profile" role="group" aria-labelledby="empire-label"></div>
       </section>

@@ -31,8 +31,11 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
           <li>${tierSentence(raw.tiers ?? [])}</li>
           <li><b>Rows are research categories</b>, washed in their area's colour:
             ${swatch(AREA_ACCENT.physics!)} Physics, ${swatch(AREA_ACCENT.society!)} Society,
-            ${swatch(AREA_ACCENT.engineering!)} Engineering. Crisis rows take their crisis's colour,
-            and a dot in a card's corner there gives its research area.</li>
+            ${swatch(AREA_ACCENT.engineering!)} Engineering.${
+              raw.rows.some((row) => row.group === "crisis")
+                ? " Crisis rows take their crisis's colour, and a dot in a card's corner there gives its research area."
+                : ""
+            }</li>
         </ul>
       </section>
 
@@ -83,18 +86,15 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
           Technologies it can never get are hidden, renamed ones take the name it sees,
           and requirements and ways in it cannot use are left out. Only combinations the
           empire designer allows are offered.</p>
-        <p><b>Settings</b>: the Gigastructures settings preset chosen at the start of the game.
-          A technology its settings switch off is hidden, and so is anything needing one.
-          Choose <b>Non-Default Settings</b> if you changed settings by hand: nothing that
-          depends on a setting is hidden then.</p>
-        <p><b>Links</b>: the address bar keeps the empire, the pinned technology and any
+        ${settingsParagraph(raw)}
+        <p><b>Links</b>: the address bar keeps the empire and settings, the pinned technology and any
           isolated line, so a copied address opens the same view. <b>Copy Link</b> in the details panel does this for you.</p>
       </section>
 
       <section>
         <h3>What the Tree Assumes</h3>
         <ul>
-          <li>Every DLC is owned, Gigastructures' settings are the chosen preset's, and other game rules are at their defaults.</li>
+          <li>Every DLC is owned, ${raw.presets?.length ? "settings are the chosen preset's, and other" : "and"} game rules are at their defaults.</li>
           <li>Costs are base costs. A few, such as the Cosmic Storms technologies, change with
             Galactic Community resolutions, which the details panel lists.</li>
           <li>Built from ${sources(raw)}.</li>
@@ -120,12 +120,29 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
   return { open };
 }
 
+/** The Settings paragraph, for a build with settings presets. */
+function settingsParagraph(raw: RawDataset): string {
+  const presets = raw.presets ?? [];
+  if (presets.length === 0) return "";
+  const label = escapeHtml(raw.presetLabel ?? "settings preset");
+  // A preset with no effect of its own is the one for settings changed by hand.
+  const open = presets.find((p) => p.open);
+  return (
+    `<p><b>Settings</b>: the ${label} chosen at the start of the game. ` +
+    `A technology its settings switch off is hidden, and so is anything needing one.` +
+    (open
+      ? ` Choose <b>${escapeHtml(open.l)}</b> if you changed settings by hand: nothing that depends on a setting is hidden then.`
+      : "") +
+    `</p>`
+  );
+}
+
 /** Where to report a mistake, when the build says. */
 function reportLine(raw: RawDataset): string {
   const links = raw.meta.links ?? {};
   const places = [
     links.issues ? `<a href="${escapeHtml(links.issues)}" target="_blank" rel="noopener noreferrer">GitHub Issues</a>` : "",
-    links.discord ? `<a href="${escapeHtml(links.discord)}" target="_blank" rel="noopener noreferrer">the Gigastructures Discord</a>` : "",
+    links.discord ? `<a href="${escapeHtml(links.discord)}" target="_blank" rel="noopener noreferrer">Discord</a>` : "",
   ].filter(Boolean);
   if (places.length === 0) return "";
   return (

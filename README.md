@@ -5,8 +5,9 @@ chosen mod load order, and publishes it as a static site.
 
 The published build targets **Gigastructural Engineering & More**, but nothing
 about Gigastructures is hard-coded: the pipeline is driven entirely by
-`config/build.toml`, so pointing it at a different load order produces a
-different tree.
+`config/build.toml` and the crisis row, unlock and settings preset files it
+names, so pointing it at a different load order produces a different tree.
+Cloning the repository and building as-is gives the Gigastructures tree.
 
 ## How it works
 
@@ -21,9 +22,9 @@ a profile hides cards and the rest close up around the gaps.
 | Compute | Python, locally | Graph, ascension perk gates, empire profiles under each Gigastructures settings preset, layout |
 | Render | TypeScript, browser | Geometry for the chosen profile, and the page |
 
-Vanilla game data cannot be redistributed, so CI cannot build the dataset. The
-dataset is built locally, published as a release artifact, and deployed from
-there. See `docs/` for the details.
+Vanilla game data cannot be put in a public build machine, so CI cannot build
+the dataset. It is built locally, and the site is published from there. See
+`docs/usage-guide.md` for updating and publishing the page.
 
 ## Getting started
 
@@ -67,7 +68,8 @@ empire's view and every isolated lineage draws no trace to a hidden card, no
 overlapping cards and no prerequisite to the right of what needs it.
 
 Controls: the dock at the top left holds search, the guide, the empire picker
-and the settings preset. Hover highlights a technology's ancestry and
+and the settings preset; on a phone the empire and preset fold behind an Empire
+button. Hover highlights a technology's ancestry and
 descendants, click pins it and opens the detail panel, middle-click (or Isolate
 in the panel) isolates it into a mini-tree, <kbd>/</kbd> searches, <kbd>F</kbd>
 fits the tree, <kbd>Esc</kbd> clears, <kbd>?</kbd> opens the guide. Touch
@@ -92,6 +94,7 @@ checkout: Gigastructures is 1.9 GB, of which ~49 MB is relevant.
 
 ## Documentation
 
+- `docs/usage-guide.md` — updating the page for a new game or mod version, and publishing it
 - `docs/KNOWN-CORPUS-DEFECTS.md` — third-party data problems the pipeline copes with
 - `docs/crisis-rows.md` — why the Gigastructures crises get rows of their own
 - `config/unlocks.toml` — names for gate conditions, tags for unlock routes such as

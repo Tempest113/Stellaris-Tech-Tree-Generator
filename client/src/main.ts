@@ -84,6 +84,16 @@ async function main(): Promise<void> {
     (index) => reveal(index),
   );
 
+  // On a phone the empire and settings fold away behind a button, and fold
+  // again once the tree is touched.
+  const dockToggle = document.getElementById("dock-toggle") as HTMLButtonElement;
+  function openDock(open: boolean): void {
+    dock.classList.toggle("open", open);
+    dockToggle.setAttribute("aria-expanded", String(open));
+  }
+  dockToggle.addEventListener("click", () => openDock(!dock.classList.contains("open")));
+  canvas.addEventListener("pointerdown", () => openDock(false));
+
   /** The dock's place on screen, or null while it takes none. */
   function dockArea(): { left: number; top: number; right: number; bottom: number } | null {
     const box = dock.getBoundingClientRect();
@@ -1183,7 +1193,10 @@ async function main(): Promise<void> {
       event.preventDefault();
       search.focus();
     } else if (event.key === "Escape") {
-      if (data.view.isolated !== null) {
+      if (dock.classList.contains("open")) {
+        openDock(false);
+        if (dock.contains(document.activeElement)) dockToggle.focus();
+      } else if (data.view.isolated !== null) {
         exitIsolation();
       } else {
         selection.pinned = null;

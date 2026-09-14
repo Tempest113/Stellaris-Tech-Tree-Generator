@@ -71,6 +71,8 @@ export interface RawRow {
   group: Area;
   key: string;
   label: string;
+  /** A crisis row's colour, from the build's rows config. */
+  colour?: string;
 }
 
 export interface RawBand {
@@ -105,8 +107,11 @@ export interface RawDataset {
   edgeKinds: string[];
   /** Every empire an empire can be created as, under every preset; masks index this list. */
   profiles: RawProfile[];
-  presets?: { k: string; l: string }[];
+  /** `open`: settings changed by hand, leaving every setting open. */
+  presets?: { k: string; l: string; open?: boolean }[];
   defaultPreset?: string | null;
+  /** What a player calls the preset choice, as in "the Gigastructures settings preset". */
+  presetLabel?: string;
   authorities: [string, string][];
   toggles: [string, string][];
   rows: RawRow[];

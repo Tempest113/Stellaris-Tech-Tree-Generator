@@ -3,8 +3,9 @@
     python tools/build_dataset.py
     python tools/build_dataset.py --out client/public/data
 
-Runs locally, never in CI: base game data cannot be redistributed, so the
-dataset is built here and published as a release artifact.
+Runs locally, never in CI: base game data cannot be put in a public build
+machine, so the dataset is built here and the site published from it. See
+docs/usage-guide.md.
 """
 
 from __future__ import annotations
@@ -31,15 +32,6 @@ from pipeline.records import extract
 from pipeline.steam import find_install
 from pipeline.vendor import GitSource
 
-#: Files whose technologies belong to a crisis family that is not yet fully
-#: classified. Used only to decide what the review report should mention.
-CRISIS_ADJACENT_FILES = {
-    "giga_08_ehof_components.txt": "E.H.O.F. / Compound family",
-    "giga_09_ehof_other.txt": "E.H.O.F. / Compound family",
-}
-CRISIS_ADJACENT_PREFIXES = ("tech_qnm_", "tech_sm_", "tech_nm_")
-
-
 def resolve_source(source, install, vendor_root: Path):
     """Turn a configured source into a load-order entry."""
     if isinstance(source, GitSource):
@@ -62,7 +54,7 @@ def resolve_source(source, install, vendor_root: Path):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=build_config.DEFAULT_CONFIG, type=Path)
-    parser.add_argument("--rows", default=rows_mod.DEFAULT_ROWS_CONFIG, type=Path)
+    parser.add_argument("--rows", type=Path, help="crisis rows config (default: [build] rows)")
     parser.add_argument("--out", type=Path, help="output directory (default: <output_root>/data)")
     args = parser.parse_args()
 
@@ -90,7 +82,12 @@ def main() -> int:
     for source in load_order:
         print(f"  - {source}")
 
-    extraction = extract(load_order, reference_load_order=reference or None)
+    extraction = extract(
+        load_order,
+        reference_load_order=reference or None,
+        unlock_config=unlocks_mod.load_config(cfg.unlocks) if cfg.unlocks else unlocks_mod.UnlockConfig(),
+        preset_config=presets_mod.load_config(cfg.presets) if cfg.presets else presets_mod.PresetConfig(),
+    )
     print(f"\nextract: {extraction.summary()}")
     for problem in extraction.problems:
         print(f"  warning: {problem}")
@@ -130,11 +127,14 @@ def main() -> int:
     effective = gates_mod.with_inherited(graph, extraction.gates)
     print(f"gates:   {gates_mod.summary(extraction.gates, effective)}")
 
+    rows_path = args.rows or cfg.rows
     assignment = rows_mod.assign(
         extraction,
         graph,
-        rows_mod.load_config(args.rows),
-        uncertainty_hints=_hints(extraction),
+        rows_mod.load_config(rows_path) if rows_path else (),
+        uncertainty_hints=rows_mod.review_hints(
+            extraction, rows_mod.load_review(rows_path) if rows_path else ()
+        ),
     )
     layout = layout_mod.build(graph, assignment)
     print(f"layout:  {layout.summary()}")
@@ -194,20 +194,6 @@ def main() -> int:
         f"{len(assignment.uncertain)} need review -> {report}"
     )
     return 0
-
-
-def _hints(extraction) -> dict[str, list[str]]:
-    hints: dict[str, list[str]] = {}
-    for key, record in extraction.technologies.items():
-        why: list[str] = []
-        origin = record.origin.relative if record.origin else ""
-        if origin in CRISIS_ADJACENT_FILES:
-            why.append(f"declared in {origin} ({CRISIS_ADJACENT_FILES[origin]})")
-        if key.startswith(CRISIS_ADJACENT_PREFIXES):
-            why.append("negative mass / sentient metal naming")
-        if why:
-            hints[key] = why
-    return hints
 
 
 if __name__ == "__main__":

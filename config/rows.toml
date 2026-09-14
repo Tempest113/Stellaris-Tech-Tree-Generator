@@ -8,6 +8,8 @@
 # Names come from Gigastructures' own `giga_category_*` localisation keys, the
 # ones it uses for situation log headings.
 #
+# `colour` is the row's colour on the page; a row without one is grey.
+#
 # Rules are tried strongest first: explicit `keys`, then `source_files`, then
 # `categories`, then `key_prefixes`, then `reachable_from`. A technology joins
 # the FIRST crisis that matches, so order below resolves any overlap.
@@ -18,6 +20,7 @@
 [[crisis]]
 key = "katzen"
 name = "Katzenartig Imperium"
+colour = "#d8bd5a"
 source_files = ["giga_10_katzen.txt"]
 keys = ["tech_katzen_atomic_munitions"]
 note = """Confident. Gigastructures keeps the whole chain in one file.
@@ -27,6 +30,7 @@ so it is listed explicitly."""
 [[crisis]]
 key = "sirens"
 name = "Sirenalia"
+colour = "#b07be0"
 source_files = ["giga_18_eawaf.txt"]
 note = """Confident. EAWAF is Gigastructures' internal name for the Sirenalia
 chain; the disenchanter technologies are all here."""
@@ -34,6 +38,7 @@ chain; the disenchanter technologies are all here."""
 [[crisis]]
 key = "aeternum"
 name = "Aeternum"
+colour = "#e07fae"
 source_files = ["giga_11_aeternum.txt"]
 note = """Confident, but only two technologies so far. Expected to grow.
 giga_tech_aeternite_weaponry is disabled upstream (potential always = no) and
@@ -42,6 +47,7 @@ has no card."""
 [[crisis]]
 key = "blokkats"
 name = "The Blokkats"
+colour = "#52d97e"
 source_files = ["giga_13_blokkat.txt"]
 categories = ["blokkats", "blokkatsprotocols"]
 note = """Confident. The file and the dedicated categories agree.
@@ -52,6 +58,9 @@ replaces."""
 [[crisis]]
 key = "compound"
 name = "The Compound"
+# Deep violet, from the hue of Stellaris' own dark matter resource icon,
+# lifted enough to stay legible as label text.
+colour = "#6e4ad8"
 reachable_from = ["tech_qnm_utilities"]
 note = """Reviewed 2026-09-13: kept as is. See docs/crisis-rows.md.
 
@@ -70,3 +79,13 @@ instead and do not.
 
 Splitting a coherent-looking family like that may well be wrong. The candidates
 are listed in the build report."""
+
+# Technologies the build report lists under "Needs review" when no crisis row
+# takes them: close to a crisis family, but not yet classified.
+[[review]]
+source_files = ["giga_08_ehof_components.txt", "giga_09_ehof_other.txt"]
+reason = "E.H.O.F. / Compound family"
+
+[[review]]
+key_prefixes = ["tech_qnm_", "tech_sm_", "tech_nm_"]
+reason = "negative mass / sentient metal naming"

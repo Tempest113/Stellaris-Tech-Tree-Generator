@@ -1,7 +1,7 @@
 /**
  * The empire profile picker.
  *
- * An authority and a handful of toggles, and the Gigastructures settings preset
+ * An authority and a handful of toggles, and the settings preset
  * the game is played with. Only combinations an empire can actually be created
  * as are offered -- the dataset lists them -- so the picker never lands on a
  * tree nobody gets, and a toggle that cannot change for the chosen authority is
@@ -168,8 +168,9 @@ export function mountProfilePicker(
 
     if (presets.length > 0) {
       const preset = document.createElement("select");
-      preset.setAttribute("aria-label", "Gigastructures settings preset");
-      preset.title = "Gigastructures settings preset";
+      const label = raw.presetLabel ?? "Settings preset";
+      preset.setAttribute("aria-label", label);
+      preset.title = label;
       for (const option of presets) preset.append(new Option(option.l, option.k));
       preset.value = state.preset ?? "";
       preset.addEventListener("change", () => {

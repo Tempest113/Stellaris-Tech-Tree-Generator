@@ -9,6 +9,10 @@
 # tree as possible. Gigastructures itself is balanced around Giga-Experience.
 
 default = "arcade"
+# What the page calls the choice.
+label = "Gigastructures settings preset"
+# The menu is used before the game has started.
+before_start = ["giga_game_started"]
 
 # Crises are left to the player. Whatever preset is picked, its crisis settings
 # -- whether the Kaiser can take over, how hard the Blokkats are, whether the
