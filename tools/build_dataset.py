@@ -159,7 +159,7 @@ def main() -> int:
             print(f"  {kind}: {', '.join(coverage[kind][:8])}")
 
     out = args.out or (cfg.output_root / "data")
-    result = emit_mod.emit(extraction, graph, layout, localisation, assignment, out)
+    result = emit_mod.emit(extraction, graph, layout, localisation, assignment, out, cfg.links)
     print(f"emit:    {result.summary()}")
 
     presets_report = cfg.output_root / "presets.md"

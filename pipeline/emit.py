@@ -169,8 +169,13 @@ def emit(
     localisation: Localisation,
     assignment: RowAssignment | None,
     directory: Path | str,
+    links: dict[str, str] | None = None,
 ) -> EmitResult:
-    """Write the dataset, the detail payload and the icon atlas."""
+    """Write the dataset, the detail payload and the icon atlas.
+
+    ``links`` are where players report mistakes (see ``[links]`` in the build
+    config); the page offers only the ones given.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
 
@@ -435,6 +440,7 @@ def emit(
                 "rows": len(layout.rows),
                 "columns": layout.columns,
             },
+            **({"links": dict(links)} if links else {}),
         },
         "atlas": {"sheets": sheets, "cell": CELL, "perRow": PER_ROW, "perSheet": PER_SHEET, "size": SHEET},
         "edgeKinds": [k.value for k in EDGE_KINDS],

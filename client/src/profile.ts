@@ -40,6 +40,8 @@ interface State {
 
 export function mountProfilePicker(
   container: HTMLElement,
+  /** Where the preset choice goes; hidden when the dataset has no presets. */
+  settings: HTMLElement,
   raw: RawDataset,
   onChange: (profile: number | null, preset: string | null) => void,
 ): ProfilePicker {
@@ -120,6 +122,7 @@ export function mountProfilePicker(
 
   function render(): void {
     container.innerHTML = "";
+    settings.innerHTML = "";
 
     const select = document.createElement("select");
     select.setAttribute("aria-label", "Empire authority");
@@ -165,7 +168,6 @@ export function mountProfilePicker(
 
     if (presets.length > 0) {
       const preset = document.createElement("select");
-      preset.className = "preset";
       preset.setAttribute("aria-label", "Gigastructures settings preset");
       preset.title = "Gigastructures settings preset";
       for (const option of presets) preset.append(new Option(option.l, option.k));
@@ -175,7 +177,7 @@ export function mountProfilePicker(
         const previous = new Set(state.toggles);
         choose(indexOf(state.authority, state.toggles), previous);
       });
-      container.append(preset);
+      settings.append(preset);
     }
 
     if (note) {

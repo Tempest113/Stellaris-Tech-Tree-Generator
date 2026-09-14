@@ -18,7 +18,7 @@ a profile hides cards and the rest close up around the gaps.
 | Stage | Runs | Produces |
 | --- | --- | --- |
 | Extract | Python, locally | Canonical expanded technology records, localisation, icons |
-| Compute | Python, locally | Graph, ascension perk gates, empire profiles, layout |
+| Compute | Python, locally | Graph, ascension perk gates, empire profiles under each Gigastructures settings preset, layout |
 | Render | TypeScript, browser | Geometry for the chosen profile, and the page |
 
 Vanilla game data cannot be redistributed, so CI cannot build the dataset. The
@@ -66,13 +66,20 @@ against small fixtures, links, and, once the dataset is built, checks that every
 empire's view and every isolated lineage draws no trace to a hidden card, no
 overlapping cards and no prerequisite to the right of what needs it.
 
-Controls: hover highlights a technology's ancestry and descendants, click pins
-it and opens the detail panel, middle-click (or Isolate in the panel) isolates
-it into a mini-tree, <kbd>/</kbd> searches, <kbd>F</kbd> fits the tree,
-<kbd>Esc</kbd> clears, <kbd>?</kbd> opens the guide. Touch equivalents: tap to
-select, long-press to isolate, pinch to zoom. The address bar carries the
-empire, pinned technology and isolated lineage, so a copied address reopens the
-same view.
+Controls: the dock at the top left holds search, the guide, the empire picker
+and the settings preset. Hover highlights a technology's ancestry and
+descendants, click pins it and opens the detail panel, middle-click (or Isolate
+in the panel) isolates it into a mini-tree, <kbd>/</kbd> searches, <kbd>F</kbd>
+fits the tree, <kbd>Esc</kbd> clears, <kbd>?</kbd> opens the guide. Touch
+equivalents: tap to select, long-press to isolate, pinch to zoom. The address
+bar carries the empire, preset, pinned technology and isolated lineage, so a
+copied address reopens the same view.
+
+Settings presets are configured in `config/presets.toml`, and each build writes
+`build/presets.md`, listing what each preset hides and why. `[links]` in
+`config/build.toml` sets where players report mistakes (GitHub issues, the
+Gigastructures Discord); the panel's Report a Problem button appears once either
+is set.
 
 ## Mod sources
 

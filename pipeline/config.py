@@ -74,7 +74,14 @@ class BuildConfig:
     output_root: Path = Path("build")
     #: Localisation language to extract.
     language: str = "english"
+    #: Where players report mistakes: ``issues`` (a GitHub issues URL) and
+    #: ``discord`` (an invite). Only the ones set are offered on the page.
+    links: dict[str, str] = field(default_factory=dict)
     path: Path | None = None
+
+
+#: The report links the page knows how to offer.
+LINK_KEYS = ("issues", "discord")
 
 
 def _source_from_table(table: dict, *, where: str) -> Source:
@@ -139,6 +146,11 @@ def load(path: Path | str = DEFAULT_CONFIG) -> BuildConfig:
         vendor_root=Path(data.get("build", {}).get("vendor_root", "vendor")),
         output_root=Path(data.get("build", {}).get("output_root", "build")),
         language=data.get("build", {}).get("language", "english"),
+        links={
+            key: str(value).strip()
+            for key, value in data.get("links", {}).items()
+            if key in LINK_KEYS and str(value).strip()
+        },
         path=path,
     )
 

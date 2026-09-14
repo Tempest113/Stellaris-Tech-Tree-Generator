@@ -99,6 +99,7 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
             Galactic Community resolutions, which the details panel lists.</li>
           <li>Built from ${sources(raw)}.</li>
         </ul>
+        ${reportLine(raw)}
       </section>
     </div>
   `;
@@ -117,6 +118,20 @@ export function mountGuide(button: HTMLButtonElement, dialog: HTMLDialogElement,
   };
   button.addEventListener("click", open);
   return { open };
+}
+
+/** Where to report a mistake, when the build says. */
+function reportLine(raw: RawDataset): string {
+  const links = raw.meta.links ?? {};
+  const places = [
+    links.issues ? `<a href="${escapeHtml(links.issues)}" target="_blank" rel="noopener noreferrer">GitHub Issues</a>` : "",
+    links.discord ? `<a href="${escapeHtml(links.discord)}" target="_blank" rel="noopener noreferrer">the Gigastructures Discord</a>` : "",
+  ].filter(Boolean);
+  if (places.length === 0) return "";
+  return (
+    `<p><b>Found a mistake?</b> Report it on ${places.join(" or ")}. ` +
+    `<b>Report a Problem</b> in the details panel fills in which technology, empire and settings you were looking at.</p>`
+  );
 }
 
 /** "Tier 2 and up open once 6 of the tier before are researched", from the dataset. */

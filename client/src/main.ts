@@ -17,7 +17,7 @@ import { mountGuide } from "./guide";
 import { ALL_EMPIRES, linkUrl, readLink, writeLink, type LinkState } from "./link";
 import { mountProfilePicker } from "./profile";
 import { mountSearch } from "./search";
-import { Renderer, emptySelection } from "./renderer";
+import { Renderer, TIER_HEADER_PX, emptySelection } from "./renderer";
 import {
   applyView,
   closedInView,
@@ -48,7 +48,8 @@ async function main(): Promise<void> {
   const status = document.getElementById("status") as HTMLElement;
   const panel = document.getElementById("panel") as HTMLElement;
   const profileBar = document.getElementById("profile") as HTMLElement;
-  const toolbar = document.getElementById("toolbar") as HTMLElement;
+  const dock = document.getElementById("dock") as HTMLElement;
+  const settingsSection = document.getElementById("settings-section") as HTMLElement;
   const isolationBar = document.getElementById("isolation") as HTMLElement;
   const guideDialog = document.getElementById("guide") as HTMLDialogElement;
   const announcer = document.getElementById("announce") as HTMLElement;
@@ -59,7 +60,8 @@ async function main(): Promise<void> {
 
   const guide = mountGuide(document.getElementById("guide-button") as HTMLButtonElement, guideDialog, raw);
 
-  const picker = mountProfilePicker(profileBar, raw, (profile, preset) => {
+  settingsSection.hidden = !raw.presets?.length;
+  const picker = mountProfilePicker(profileBar, document.getElementById("settings") as HTMLElement, raw, (profile, preset) => {
     applyView(data, profile, null, preset);
     isolatedRoot = null;
     refreshView();
@@ -82,11 +84,17 @@ async function main(): Promise<void> {
     (index) => reveal(index),
   );
 
-  // Fitting keeps the tree clear of the tier header and the toolbar below it.
+  /** The dock's place on screen, or null while it takes none. */
+  function dockArea(): { left: number; top: number; right: number; bottom: number } | null {
+    const box = dock.getBoundingClientRect();
+    return box.width > 0 ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null;
+  }
+
+  // Fitting keeps the tree clear of the tier header, and beside or below the dock.
   const camera = new Camera(
     () => data.view.geometry,
     { width: canvas.clientWidth, height: canvas.clientHeight },
-    () => toolbar.getBoundingClientRect().bottom + 8,
+    () => ({ header: TIER_HEADER_PX, dock: dockArea() }),
   );
   const renderer = new Renderer(canvas, data, camera);
   renderer.resize();
@@ -195,12 +203,18 @@ async function main(): Promise<void> {
     select(index, true);
   }
 
-  /** The screen area neither the toolbar nor the panel covers. */
+  /**
+   * The screen area neither the dock nor the panel covers, with the panel as
+   * if open. A narrow dock leaves the area beside it; a dock across the top of
+   * a phone leaves the area below.
+   */
   function openArea(): { left: number; top: number; right: number; bottom: number } {
     const insets = panelInsets();
+    const box = dockArea();
+    const beside = box !== null && box.right < window.innerWidth / 2;
     return {
-      left: 0,
-      top: toolbar.getBoundingClientRect().bottom,
+      left: beside ? box.right : 0,
+      top: beside || box === null ? TIER_HEADER_PX : box.bottom,
       right: window.innerWidth - insets.right,
       bottom: window.innerHeight - insets.bottom,
     };
@@ -215,7 +229,7 @@ async function main(): Promise<void> {
     camera.centreOn(node.x + CARD_WIDTH / 2 + offsetX, node.y + CARD_HEIGHT / 2 + offsetY, scale);
   }
 
-  /** Move the view only as far as it takes to show a card the toolbar or panel now covers. */
+  /** Move the view only as far as it takes to show a card the dock or panel now covers. */
   function keepCardInView(index: number): void {
     const node = data.nodes[index]!;
     const { scale, x, y } = camera;
@@ -456,6 +470,8 @@ async function main(): Promise<void> {
       .join("");
     const isolatedHere =
       data.view.isolated !== null && isolatedRoot !== null && data.nodes[isolatedRoot]!.key === node.key;
+    const links = raw.meta.links ?? {};
+    const reportable = Boolean(links.issues || links.discord);
 
     panel.innerHTML = `
       <div class="head">
@@ -485,8 +501,10 @@ async function main(): Promise<void> {
       <div class="actions">
         <button type="button" data-action="isolate">${isolatedHere ? "Show Whole Tree" : "Isolate"}</button>
         <button type="button" data-action="link">Copy Link</button>
+        ${reportable ? '<button type="button" data-action="report" aria-expanded="false" aria-controls="report">Report a Problem</button>' : ""}
         <span class="done" role="status" aria-live="polite"></span>
       </div>
+      ${reportable ? reportArea() : ""}
       ${startNote(detail?.sw)}
       <p class="desc">${escapeHtml(detail?.d ?? "")}</p>
       ${gateSection(gates)}
@@ -535,6 +553,63 @@ async function main(): Promise<void> {
         done.textContent = url;
       }
     });
+    const report = panel.querySelector("#report") as HTMLElement | null;
+    const reportButton = panel.querySelector('[data-action="report"]');
+    reportButton?.addEventListener("click", () => {
+      if (!report) return;
+      report.hidden = !report.hidden;
+      reportButton.setAttribute("aria-expanded", String(!report.hidden));
+    });
+    const issue = panel.querySelector('[data-action="issue"]') as HTMLAnchorElement | null;
+    if (issue && links.issues) issue.href = issueUrl(links.issues, node.name, reportText(node.name, node.key));
+    const copied = panel.querySelector("#report .copied") as HTMLElement | null;
+    panel.querySelector('[data-action="copy-report"]')?.addEventListener("click", async () => {
+      const text = reportText(node.name, node.key);
+      try {
+        await navigator.clipboard.writeText(text);
+        if (copied) copied.textContent = "Copied. Paste it into the Discord.";
+      } catch {
+        if (copied) copied.textContent = text;
+      }
+    });
+  }
+
+  /** The inline area Report a Problem opens: a pre-filled GitHub issue, and a report to copy for Discord. */
+  function reportArea(): string {
+    const links = raw.meta.links ?? {};
+    const parts = ['<div class="report" id="report" hidden>', "<p>Tell us what looks wrong. The report says which technology, empire and settings you were looking at.</p>"];
+    if (links.issues) {
+      parts.push('<a class="report-link" data-action="issue" target="_blank" rel="noopener noreferrer" href="#">Open a GitHub Issue</a>');
+    }
+    if (links.discord) {
+      parts.push(
+        '<button type="button" data-action="copy-report">Copy Report for Discord</button>',
+        `<a class="report-link" target="_blank" rel="noopener noreferrer" href="${escapeHtml(links.discord)}">Open the Discord</a>`,
+      );
+    }
+    parts.push('<span class="copied" role="status" aria-live="polite"></span>', "</div>");
+    return parts.join("");
+  }
+
+  /** A report of the view as plain text, the same for GitHub and Discord. */
+  function reportText(name: string, key: string): string {
+    const profile = data.view.profile === null ? "All empires" : raw.profiles[data.view.profile]!.l;
+    const preset = raw.presets?.find((p) => p.k === currentPreset())?.l;
+    return [
+      `Technology: ${name} (${key})`,
+      `Empire: ${profile}${preset ? `, ${preset}` : ""}`,
+      `View: ${linkUrl(linkState())}`,
+      "",
+      "What looks wrong?",
+      "",
+    ].join("\n");
+  }
+
+  /** A new GitHub issue for `issues` (the repository's issues page), pre-filled. */
+  function issueUrl(issues: string, name: string, body: string): string {
+    const base = issues.replace(/\/+$/, "").replace(/\/new$/, "");
+    const params = new URLSearchParams({ title: `${name}: `, body });
+    return `${base}/new?${params.toString()}`;
   }
 
   /** Cost factors that apply under conditions, in the order the game lists them. */

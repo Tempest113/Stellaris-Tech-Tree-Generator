@@ -14,6 +14,12 @@ vendor_root = "vendor"
 output_root = "build"
 language = "english"
 
+# Where players report a mistake. The details panel offers a pre-filled GitHub
+# issue and a report to copy for Discord; each is shown only once it is set.
+[links]
+issues = ""   # e.g. "https://github.com/<owner>/<repo>/issues"
+discord = ""  # an invite to the Gigastructures Discord
+
 # --- Load order, applied over the base game in the order listed -------------
 
 [[sources]]

@@ -96,6 +96,8 @@ export interface RawDataset {
     generated: string;
     sources: { key: string; name: string; version: string | null }[];
     counts: Record<string, number>;
+    /** Where players report mistakes; only the ones set are offered. */
+    links?: { issues?: string; discord?: string };
   };
   /** `size` is the sheet's pixel width and height; `perRow * cell` is smaller,
    *  so CSS background scaling needs the real figure. */

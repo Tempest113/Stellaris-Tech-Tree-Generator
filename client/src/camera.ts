@@ -11,6 +11,52 @@ export interface Viewport {
   height: number;
 }
 
+/** A screen rectangle, in CSS pixels. */
+export interface Area {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** What sits over the tree and should be kept clear when fitting it. */
+export interface Obstacles {
+  /** Screen pixels at the top taken by the tier header. */
+  header: number;
+  /** The control dock, or null when it takes no space. */
+  dock: Area | null;
+}
+
+/** Breathing room between the tree and whatever is beside it. */
+const GAP = 8;
+
+/**
+ * The part of the screen to fit content into: beside the dock or below it,
+ * whichever shows the content larger, less what the detail panel covers.
+ *
+ * The tree is about as tall as it is wide, so on a landscape screen its fit is
+ * set by height, and a narrow dock at the left costs it nothing; on a phone the
+ * dock spans the top, and the tree goes below.
+ */
+export function fitArea(
+  viewport: Viewport,
+  content: { width: number; height: number },
+  obstacles: Obstacles,
+  rightInset = 0,
+  bottomInset = 0,
+): Area {
+  const right = viewport.width - rightInset;
+  const bottom = viewport.height - bottomInset;
+  const top = obstacles.header + GAP;
+  const dock = obstacles.dock;
+  if (dock === null) return { left: 0, top, right, bottom };
+  const beside = { left: dock.right + GAP, top, right, bottom };
+  const below = { left: 0, top: Math.max(top, dock.bottom + GAP), right, bottom };
+  const scale = (area: Area) =>
+    Math.min((area.right - area.left) / content.width, (area.bottom - area.top) / content.height);
+  return scale(beside) >= scale(below) ? beside : below;
+}
+
 export class Camera {
   scale = 0.25;
   x = 0;
@@ -28,10 +74,9 @@ export class Camera {
     /** The size of what is shown, which changes with the view. */
     private readonly size: () => { width: number; height: number },
     private viewport: Viewport,
-    /** Screen pixels at the top covered by the header and toolbar, kept clear by
-     *  `fit`. Read each time: the toolbar grows when it wraps or shows the
-     *  isolation chip. */
-    private readonly topInset: () => number = () => 0,
+    /** What covers the tree. Read each time: the dock grows when it shows
+     *  the isolation chip or wraps its toggles. */
+    private readonly obstacles: () => Obstacles = () => ({ header: 0, dock: null }),
   ) {}
 
   setViewport(viewport: Viewport): void {
@@ -39,17 +84,20 @@ export class Camera {
     this.clamp();
   }
 
-  /** Fit the whole tree on screen, below the header. */
+  /** The clear part of the screen the tree is fitted and centred in. */
+  clearArea(): Area {
+    return fitArea(this.viewport, this.size(), this.obstacles(), this.rightInset, this.bottomInset);
+  }
+
+  /** Fit the whole tree into the clear part of the screen. */
   fit(): void {
     const content = this.size();
-    const top = this.topInset();
-    const height = this.viewport.height - top - this.bottomInset;
-    const width = this.viewport.width - this.rightInset;
-    const sx = width / content.width;
-    const sy = height / content.height;
-    this.scale = Math.max(this.minScale, Math.min(sx, sy) * 0.98);
-    this.x = (width - content.width * this.scale) / 2;
-    this.y = top + (height - content.height * this.scale) / 2;
+    const area = this.clearArea();
+    const width = area.right - area.left;
+    const height = area.bottom - area.top;
+    this.scale = Math.max(this.minScale, Math.min(width / content.width, height / content.height) * 0.98);
+    this.x = area.left + (width - content.width * this.scale) / 2;
+    this.y = area.top + (height - content.height * this.scale) / 2;
   }
 
   panBy(dx: number, dy: number): void {
@@ -107,11 +155,12 @@ export class Camera {
     this.x = Math.min(slackX, Math.max(this.viewport.width - scaledWidth - slackX, this.x));
     this.y = Math.min(slackY, Math.max(this.viewport.height - scaledHeight - slackY, this.y));
 
-    // When the content is smaller than the viewport, centre instead of clamping:
-    // in the part of it the panel leaves uncovered.
-    const width = this.viewport.width - this.rightInset;
-    if (scaledWidth < width) this.x = (width - scaledWidth) / 2;
-    const height = this.viewport.height - this.bottomInset;
-    if (scaledHeight < height) this.y = (height - scaledHeight) / 2;
+    // When the content is smaller than the clear area, centre it there instead:
+    // clear of the dock and of the panel.
+    const area = this.clearArea();
+    const width = area.right - area.left;
+    const height = area.bottom - area.top;
+    if (scaledWidth < width) this.x = area.left + (width - scaledWidth) / 2;
+    if (scaledHeight < height) this.y = area.top + (height - scaledHeight) / 2;
   }
 }
