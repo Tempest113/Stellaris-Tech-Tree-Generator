@@ -24,7 +24,7 @@ presets = "config/presets.toml"
 # Where players report a mistake. The details panel offers a pre-filled GitHub
 # issue and a report to copy for Discord; each is shown only once it is set.
 [links]
-issues = ""   # e.g. "https://github.com/<owner>/<repo>/issues"
+issues = "https://github.com/Tempest113/Stellaris-Tech-Tree-Generator/issues"
 discord = "https://discord.gg/gpBuCf3GZB"  # Gigastructures Discord, permanent invite
 
 # --- Load order, applied over the base game in the order listed -------------
