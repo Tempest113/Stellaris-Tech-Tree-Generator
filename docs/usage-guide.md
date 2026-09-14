@@ -115,34 +115,45 @@ npm --prefix client run build
 ```
 
 This writes the whole site, dataset included, to `client/dist`. It is static
-files only, so any static host will serve it. For GitHub Pages from a
-`gh-pages` branch:
+files only, so any static host will serve it.
 
-The first time, turn `client/dist` into a repository of its own that pushes to
-the `gh-pages` branch. Rebuilding keeps it, because the build clears
-everything in `client/dist` except `.git`.
+The published Gigastructures tree lives in a repository of its own, holding
+nothing but the built site:
+[Tempest113/Gigas-Tech-Tree](https://github.com/Tempest113/Gigas-Tech-Tree),
+served by GitHub Pages from its `main` branch at
+<https://tempest113.github.io/Gigas-Tech-Tree/>. The generator's repository keeps
+its name because it can build other trees; the page's address says what it
+shows.
+
+`client/dist` is a clone of that site repository. Rebuilding keeps the clone,
+because the build clears everything in `client/dist` except `.git`, so
+publishing is committing whatever the build left there.
+
+On a new machine, clone it once, before building (the folder must not exist
+yet):
 
 ```bash
-git -C client/dist init -b gh-pages
-git -C client/dist remote add origin https://github.com/<owner>/<repo>.git
+git clone https://github.com/Tempest113/Gigas-Tech-Tree.git client/dist
 ```
 
 Every time:
 
 ```bash
 git -C client/dist add -A
-git -C client/dist commit -m "Stellaris 4.4.6, Gigastructures 3.39.4"
-git -C client/dist push origin gh-pages
+git -C client/dist commit -m "Stellaris v4.4.6, Gigastructures 3.39.4"
+git -C client/dist push origin main
 ```
 
-The first push creates the branch. Then, in the repository on GitHub, open
-**Settings → Pages** and set the source to **Deploy from a branch**, `gh-pages`,
-`/ (root)`. If the repository already serves an older version of the page some
-other way, switching the source there replaces it. GitHub takes a minute or two
-to update the page.
+In GitHub Desktop, `client/dist` can be added as a repository of its own (File →
+Add local repository) and pushed from there instead. GitHub takes a minute or
+two to update the page after a push.
 
 Commit the configuration changes (the new pin, any fixes to `config/`) to the
-main branch as well, so the next build starts from them.
+generator's repository as well, so the next build starts from them.
+
+To publish a tree somewhere else, make `client/dist` a clone of that repository
+instead, and in its **Settings → Pages** choose **Deploy from a branch**, the
+branch you push, `/ (root)`.
 
 ## When Gigastructures adds technologies
 

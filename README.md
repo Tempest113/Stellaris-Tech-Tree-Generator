@@ -3,6 +3,8 @@
 Generates an interactive technology tree from a Stellaris installation and a
 chosen mod load order, and publishes it as a static site.
 
+The published Gigastructures tree: <https://tempest113.github.io/Gigas-Tech-Tree/>
+
 The published build targets **Gigastructural Engineering & More**, but nothing
 about Gigastructures is hard-coded: the pipeline is driven entirely by
 `config/build.toml` and the crisis row, unlock and settings preset files it
