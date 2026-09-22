@@ -22,7 +22,7 @@ from pipeline.records import (
     extract,
 )
 
-TECHNOLOGY_COUNT = 978
+TECHNOLOGY_COUNT = 982
 REPEATABLE_COUNT = 88
 #: Of the 88 repeatables, 76 are unlimited. Worth stating explicitly: 76 is the
 #: number the previous attempt reported as its *total* repeatable count, because
@@ -270,7 +270,7 @@ def test_repeatable_counts(records):
 
 @pytest.mark.corpus
 def test_finite_repeatable_caps(records):
-    assert {r.level_cap for r in records.repeatables if r.level_cap} == {5, 20, 40}
+    assert {r.level_cap for r in records.repeatables if r.level_cap} == {5, 10, 20, 40}
 
 
 @pytest.mark.corpus
@@ -340,7 +340,7 @@ def test_signal_counts_for_rendering(records):
     """is_rare is near-useless in a Gigas build; is_dangerous and weight=0 are not."""
     rare = sum(1 for r in records if r.is_rare)
     assert sum(1 for r in records if r.is_dangerous) == 62
-    assert sum(1 for r in records if r.is_weightless) == 182
+    assert sum(1 for r in records if r.is_weightless) == 184
     assert rare > len(records) * 0.4
 
 

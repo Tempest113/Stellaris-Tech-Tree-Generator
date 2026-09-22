@@ -14,7 +14,7 @@ from pipeline.layout import COLUMN_CONSTRAINT_KINDS, RowKey, check_invariants
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import Extraction, build_record, extract
 
-SLOT_COUNT = 970
+SLOT_COUNT = 973
 ROW_COUNT = 16
 #: Technologies pushed past their own tier band by a higher-tier prerequisite.
 SPILLED_COUNT = 25

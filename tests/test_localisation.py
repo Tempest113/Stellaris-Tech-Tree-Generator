@@ -145,11 +145,20 @@ def test_no_technology_name_or_description_keeps_raw_markup(corpus):
 
 
 @pytest.mark.corpus
-def test_every_technology_has_a_name(corpus):
+def test_every_technology_with_a_card_has_a_name(corpus):
+    """Only technologies that reach the tree need a name.
+
+    Gigastructures ships unfinished work: the supermassive E.H.O.F. technology
+    is disabled by a country flag nothing sets, and has no localisation either
+    (see docs/KNOWN-CORPUS-DEFECTS.md).
+    """
     extraction, table = corpus
-    report = coverage(table, sorted(extraction.technologies))
+    report = coverage(table, sorted(set(extraction.technologies) - extraction.disabled))
     assert report["missing"] == []
     assert report["empty"] == []
+
+    whole = coverage(table, sorted(extraction.technologies))
+    assert whole["missing"] == ["giga_tech_blokkat_supermassive_ehof_activate"]
 
 
 @pytest.mark.corpus

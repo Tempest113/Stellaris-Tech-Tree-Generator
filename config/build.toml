@@ -42,7 +42,7 @@ repo = "https://github.com/Pouchkinn-s-Gigastructures/Gigastructures.git"
 # A local Workshop copy is not a reproducible input: it can be stale, and a
 # maintainer's copy may sit on a feature branch or carry work in progress.
 ref = "Live-Branch"
-commit = "4f7d3a1fa8ccdcf503820345958d181283bfa65d"
+commit = "86c72866b4b2105c32a299add7aebe1d2e47fa6b"
 
 # --- Reference-only sources -------------------------------------------------
 #

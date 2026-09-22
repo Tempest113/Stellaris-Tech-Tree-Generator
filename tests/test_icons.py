@@ -10,8 +10,10 @@ from pipeline import icons as icons_mod
 from pipeline.icons import Fallback, IconIndex, PLACEHOLDER_STEM
 
 #: Technologies with neither a ``<key>.dds`` nor a usable declared ``icon``.
-#: All three are Gigastructures; no vanilla technology lacks an icon.
+#: All four are Gigastructures; no vanilla technology lacks an icon. The
+#: supermassive E.H.O.F. one is unfinished upstream and has no card either.
 MISSING_ICON_KEYS = {
+    "giga_tech_blokkat_supermassive_ehof_activate",
     "giga_tech_planetary_matter_dumping",
     "giga_tech_repeatable_dyson_swarm_cap",
     "giga_tech_repeatable_observatory_cap",

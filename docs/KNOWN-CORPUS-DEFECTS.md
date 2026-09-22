@@ -134,3 +134,20 @@ technologies are disabled and have no card (see `pipeline/profiles.py`). If the
 origin is restored upstream they reappear, and these four are then worth
 checking again: the build would trace them as research unlocks if the events
 come back, and tag them "Unknown" if not.
+
+## Verified 2026-09-22 — Stellaris 4.5.0, Gigastructures 3.40.0 at 86c7286
+
+### 7. Gigastructures: the supermassive E.H.O.F. technology is unfinished
+
+`giga_tech_blokkat_supermassive_ehof_activate`, new in `giga_13_blokkat.txt`,
+has `potential = { has_country_flag = blokkat_flee_ehof_activate_possible }`,
+and nothing in the load order sets that flag. It also has no localisation entry
+and no icon of its own, and its `prereqfor_desc` reuses
+`giga_tech_blokkat_mega_stage_4_title` for both title and description. It reads
+as work in progress for a Blokkat escape route.
+
+**Handling:** none needed. No empire can meet the potential, so it is disabled
+and has no card, which is why the name and icon are not missed. The
+localisation test asserts a name only for technologies that reach the tree, and
+records this one as the single known gap. If the flag starts being set
+upstream, the technology appears and will need a name, an icon and a tag.

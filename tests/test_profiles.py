@@ -222,6 +222,7 @@ def test_technologies_no_empire_can_research_are_disabled(built):
         "giga_tech_amb_supertensiles_acot_delta",
         "giga_tech_amb_supertensiles_acot_phanon",
         "giga_tech_amb_supertensiles_acot_sigma",
+        "giga_tech_blokkat_supermassive_ehof_activate",
         "giga_tech_interstellar_ringworld",
         "giga_tech_orbital_elysium",
         "giga_tech_stellar_ring_habitat",

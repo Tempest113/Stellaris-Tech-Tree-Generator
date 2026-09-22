@@ -31,7 +31,7 @@ TAG_COUNTS = {
     "Observation Insight": 13,
     "Special Project": 13,
     "Debris": 12,
-    "Covenant": 10,
+    "Covenant": 11,
     "Reality Code": 9,
     "Anomaly": 7,
     "Archaeology": 6,
