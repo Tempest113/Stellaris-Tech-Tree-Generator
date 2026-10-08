@@ -12,16 +12,16 @@ from pipeline.graph import Edge, EdgeKind, GraphCycleError, TechGraph, find_tech
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import extract
 
-#: 982 technologies, less eighteen whose potential no empire can meet: four
+#: 983 technologies, less eighteen whose potential no empire can meet: four
 #: Gigastructures retired with `always = no`, four ACOT compatibility
 #: technologies behind `has_acot` (`always = no` without ACOT), eight behind the
 #: Frame World origin Gigastructures disabled for 4.0, the Archaeology Lab that
 #: only exists without Ancient Relics, and the Blokkat supermassive E.H.O.F.
 #: technology waiting on a country flag nothing sets (see
 #: docs/KNOWN-CORPUS-DEFECTS.md).
-NODE_COUNT = 964
-PREREQUISITE_EDGES = 870
-ALTERNATIVE_EDGES = 76
+NODE_COUNT = 965
+PREREQUISITE_EDGES = 871
+ALTERNATIVE_EDGES = 78
 #: Gates surviving the scope filter. The corpus holds 27 raw ``has_technology``
 #: references inside ``potential``; 6 of them sit under ``any_country`` or
 #: ``count_country`` in the E.H.O.F. sentient metal chain and describe the state

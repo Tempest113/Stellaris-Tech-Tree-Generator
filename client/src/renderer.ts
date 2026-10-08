@@ -127,7 +127,9 @@ export class Renderer {
   }
 
   resize(): void {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Never below 1: zoomed out, the browser reports a ratio under 1, and a
+    // canvas smaller than the page it covers composites wrongly in Firefox.
+    this.dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
     const { clientWidth, clientHeight } = this.canvas;
     this.canvas.width = Math.floor(clientWidth * this.dpr);
     this.canvas.height = Math.floor(clientHeight * this.dpr);

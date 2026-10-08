@@ -22,7 +22,7 @@ from pipeline.records import (
     extract,
 )
 
-TECHNOLOGY_COUNT = 982
+TECHNOLOGY_COUNT = 983
 REPEATABLE_COUNT = 88
 #: Of the 88 repeatables, 76 are unlimited. Worth stating explicitly: 76 is the
 #: number the previous attempt reported as its *total* repeatable count, because

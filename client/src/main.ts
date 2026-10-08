@@ -33,6 +33,8 @@ const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP = 12;
 /** Share of a phone screen the detail sheet covers; `#panel` in index.html agrees. */
 const PHONE_SHEET = 0.7;
+/** Pixels a wheel "line" stands for: three lines make one Chrome notch. */
+const WHEEL_LINE_PX = 33;
 /** Height of the folded panel on a phone, before it has been measured. */
 const FOLDED_SHEET_PX = 72;
 /** Rendered size of a perk icon in the detail panel. */
@@ -1033,7 +1035,10 @@ async function main(): Promise<void> {
     "wheel",
     (event) => {
       event.preventDefault();
-      camera.zoomAt(event.clientX, event.clientY, Math.pow(0.999, event.deltaY));
+      // Firefox reports a mouse wheel notch in lines (about 3), Chrome in
+      // pixels (about 100): bring both to pixels, or a notch barely zooms.
+      const pixels = event.deltaMode === 1 ? event.deltaY * WHEEL_LINE_PX : event.deltaMode === 2 ? event.deltaY * window.innerHeight : event.deltaY;
+      camera.zoomAt(event.clientX, event.clientY, Math.pow(0.999, pixels));
       schedule();
     },
     { passive: false },
