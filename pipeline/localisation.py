@@ -29,7 +29,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .loadorder import LoadOrder, Source
+from .clausewitz import Block, parse_file as parse_script
+from .loadorder import LoadOrder, Source, resolve_files
 
 #: Guards against a reference loop. Real chains are 2-3 deep; the corpus has
 #: ``tech_corvette_hull_effect`` -> ``corvette_hull_effect`` ->
@@ -70,6 +71,10 @@ class Localisation:
     entries: dict[str, LocEntry] = field(default_factory=dict)
     #: Reference keys that no entry defines. Usually runtime values.
     unresolved: set[str] = field(default_factory=set)
+    #: ``defined_text`` name -> its ``default`` key, from ``common/scripted_loc``.
+    #: ``[GetCulturalEnvoyNamePlural]`` picks a name by ideology at runtime; with
+    #: no empire to ask, the default is the text a reader should see.
+    command_defaults: dict[str, str] = field(default_factory=dict)
     _cache: dict[str, str] = field(default_factory=dict)
 
     def __contains__(self, key: str) -> bool:
@@ -137,8 +142,17 @@ class Localisation:
         ``seen`` breaks reference cycles along the current chain rather than
         globally, so two siblings may both reference the same key.
         """
-        if depth >= MAX_RESOLUTION_DEPTH or "$" not in text:
+        if depth >= MAX_RESOLUTION_DEPTH or ("$" not in text and "[" not in text):
             return text
+
+        def command(match: re.Match[str]) -> str:
+            name = match.group(0)[1:-1].rsplit(".", 1)[-1]
+            entry = self.entries.get(self.command_defaults.get(name, ""))
+            if entry is None or name in seen:
+                return match.group(0)  # runtime state; clean() drops it
+            return self._expand(entry.raw, depth=depth + 1, seen=seen | {name})
+
+        text = _COMMAND.sub(command, text)
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1)
@@ -214,6 +228,14 @@ def load(load_order: LoadOrder, *, language: str = "english") -> Localisation:
                     table.entries[key] = LocEntry(
                         raw=value, source=source, is_replacement=replacement
                     )
+
+    for resolved in resolve_files(load_order, "common/scripted_loc"):
+        # scripted_loc_ruloc.txt never closes its last block; see KNOWN-CORPUS-DEFECTS.md.
+        for pair in parse_script(resolved.path, allow_unclosed_blocks=True).pairs():
+            if pair.key == "defined_text" and isinstance(pair.value, Block):
+                name, default = pair.value.scalar_text("name"), pair.value.scalar_text("default")
+                if name and default:
+                    table.command_defaults[name] = default
 
     return table
 

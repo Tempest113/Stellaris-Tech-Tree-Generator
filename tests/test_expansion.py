@@ -27,10 +27,10 @@ from pipeline.variables import VariableTable, collect_variables
 #: 26 vanilla + 62 Gigastructures. The previous attempt shipped a predicate that
 #: found 76 of these, because it tested ``levels < 0`` and so missed every
 #: finite-level repeatable.
-REPEATABLE_COUNT = 88
+REPEATABLE_COUNT = 87
 
 #: Technologies whose entire body arrives from ``technology/giga_mega_repeatable``.
-TEMPLATE_EMITTED_COUNT = 50
+TEMPLATE_EMITTED_COUNT = 49
 
 CANARY = "giga_tech_repeatable_vanilla_dyson_cap"
 

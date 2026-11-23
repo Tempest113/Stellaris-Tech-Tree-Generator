@@ -77,6 +77,14 @@ def test_runtime_commands_are_removed():
     assert clean("the [Root.GetName] system") == "the system"
 
 
+def test_scripted_loc_command_falls_back_to_its_default():
+    table = _table(ship="$envoys$", envoys="[GetEnvoysPlural]", envoys_default="Cultural Envoys")
+    table.command_defaults["GetEnvoysPlural"] = "envoys_default"
+    assert table.get("ship") == "Cultural Envoys"
+    assert table.get("envoys") == "Cultural Envoys"
+    assert _table(x="the [Root.GetName] system").get("x") == "the system"
+
+
 def test_escaped_newlines_become_real_ones():
     assert clean("a\nb") == "a\nb"
 

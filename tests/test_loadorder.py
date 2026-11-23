@@ -24,8 +24,8 @@ from pipeline.loadorder import (
 )
 from pipeline.steam import Install
 
-VANILLA_TECH_COUNT = 679
-GIGAS_TECH_COUNT = 306
+VANILLA_TECH_COUNT = 683
+GIGAS_TECH_COUNT = 301
 #: Gigastructures replaces exactly these two vanilla technologies, and does so
 #: through stage-2 key merge (a new ``zz_`` filename), not file replacement.
 GIGAS_OVERRIDES = {"tech_mega_engineering", "tech_ring_world"}

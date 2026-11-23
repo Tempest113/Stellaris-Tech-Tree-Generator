@@ -97,6 +97,11 @@ tag = "Covenant"
 via = "event:paragon.*"
 tag = "Paragon"
 
+# Force of Will ideology perks, which reuse common/menace_perks.
+[[route]]
+via = "menace_perks:menp_force_of_will_*"
+tag = "Ideology"
+
 [[route]]
 via = "scripted_effects:cara_execute_deal*"
 tag = "Caravaneers"

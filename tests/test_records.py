@@ -22,12 +22,12 @@ from pipeline.records import (
     extract,
 )
 
-TECHNOLOGY_COUNT = 983
-REPEATABLE_COUNT = 88
-#: Of the 88 repeatables, 76 are unlimited. Worth stating explicitly: 76 is the
+TECHNOLOGY_COUNT = 982
+REPEATABLE_COUNT = 87
+#: Of the 87 repeatables, 75 are unlimited. Worth stating explicitly: 76 is the
 #: number the previous attempt reported as its *total* repeatable count, because
 #: it tested ``levels < 0`` instead of "declares levels".
-UNLIMITED_REPEATABLE_COUNT = 76
+UNLIMITED_REPEATABLE_COUNT = 75
 
 #: Swaps that state an area/category of their own...
 SWAPS_DECLARING_PLACEMENT = 13
@@ -36,8 +36,13 @@ RELOCATING_SWAPS = 9
 RELOCATING_TECHNOLOGIES = 8
 
 #: Gigastructures' ACOT compatibility chain names four technologies that exist
-#: only when ACOT is loaded. Expected, not a defect.
+#: only when ACOT is loaded. Expected, not a defect. The other three name
+#: nomad and wilderness variants no load order defines, each inside an OR
+#: (see docs/KNOWN-CORPUS-DEFECTS.md).
 DANGLING_PREREQUISITES = {
+    "giga_tech_automated_stripmine_2": ["tech_nomads_mine_volatile_motes", "tech_wilderness_volatile_motes"],
+    "giga_tech_crystal_megabore": ["tech_nomads_mine_rare_crystals", "tech_wilderness_rare_crystals"],
+    "giga_tech_succ": ["tech_nomads_mine_exotic_gases", "tech_wilderness_exotic_gases"],
     "giga_tech_amb_supertensiles_acot_alpha": ["tech_dark_matter_power_core_ae"],
     "giga_tech_amb_supertensiles_acot_delta": ["tech_dark_matter_power_core_dm"],
     "giga_tech_amb_supertensiles_acot_phanon": ["tech_civil_phanon_application"],
@@ -337,11 +342,11 @@ def test_canary_record_is_fully_materialised(records):
 
 @pytest.mark.corpus
 def test_signal_counts_for_rendering(records):
-    """is_rare is near-useless in a Gigas build; is_dangerous and weight=0 are not."""
-    rare = sum(1 for r in records if r.is_rare)
-    assert sum(1 for r in records if r.is_dangerous) == 62
-    assert sum(1 for r in records if r.is_weightless) == 184
-    assert rare > len(records) * 0.4
+    """is_rare marks four in ten technologies in a Gigas build; is_dangerous and weight=0 are rarer."""
+    # Gigastructures 3.41 cut its rare technologies from 205 to 172.
+    assert sum(1 for r in records if r.is_rare) == 382
+    assert sum(1 for r in records if r.is_dangerous) == 64
+    assert sum(1 for r in records if r.is_weightless) == 183
 
 
 @pytest.mark.corpus

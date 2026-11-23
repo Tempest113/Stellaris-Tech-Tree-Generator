@@ -181,9 +181,9 @@ def test_profiles_travel_with_the_dataset(emitted):
     assert "tech_bio_lasers_1" in details
     arkship = next(n for n in dataset["nodes"] if n["k"] == "tech_arkship_construction")
     assert int(arkship["hp"], 16) & (1 << profiles.index("regular"))
-    vat = details["giga_tech_the_vat"]["ap"]
-    mechromancy = next(c for gate in vat for alt in gate["a"] for c in alt if c["n"] == "Mechromancy")
-    assert int(mechromancy["x"], 16) & (1 << profiles.index("regular"))
+    links = details["tech_neuro_quantum_links"]["ap"]
+    hive_only = next(c for gate in links for alt in gate["a"] for c in alt if c["n"] == "Organo-Machine Interfacing")
+    assert int(hive_only["x"], 16) & (1 << profiles.index("regular"))
 
 
 @pytest.mark.corpus

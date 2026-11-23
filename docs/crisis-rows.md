@@ -30,9 +30,9 @@ it uses for situation-log headings:
 | The Compound | 15 | Reviewed, kept as is |
 
 The four high-confidence rows come straight from source files: Gigastructures
-keeps each chain in its own file (`giga_10_katzen.txt`, `giga_18_eawaf.txt` —
+keeps each chain in its own file (`giga_10_katzen.txt`, `giga_16_eawaf.txt` —
 EAWAF is its internal name for Sirenalia — `giga_11_aeternum.txt`,
-`giga_13_blokkat.txt`). `tech_katzen_atomic_munitions` is the one exception,
+`giga_12_blokkat.txt`). `tech_katzen_atomic_munitions` is the one exception,
 living in the shared special-project file, so it is listed explicitly.
 
 Blokkats is the one group that already spanned all three research areas, so a

@@ -19,15 +19,15 @@ from pipeline.records import extract
 #: only exists without Ancient Relics, and the Blokkat supermassive E.H.O.F.
 #: technology waiting on a country flag nothing sets (see
 #: docs/KNOWN-CORPUS-DEFECTS.md).
-NODE_COUNT = 965
-PREREQUISITE_EDGES = 871
-ALTERNATIVE_EDGES = 78
+NODE_COUNT = 966
+PREREQUISITE_EDGES = 872
+ALTERNATIVE_EDGES = 70
 #: Gates surviving the scope filter. The corpus holds 27 raw ``has_technology``
 #: references inside ``potential``; 6 of them sit under ``any_country`` or
 #: ``count_country`` in the E.H.O.F. sentient metal chain and describe the state
 #: of the galaxy rather than a dependency, and a 7th is a self-reference. Four
 #: more belong to the disabled Frame World technologies.
-POTENTIAL_GATE_EDGES = 17
+POTENTIAL_GATE_EDGES = 19
 
 @pytest.fixture(scope="module")
 def built(install, gigas_root: Path):
@@ -258,10 +258,15 @@ def test_build_is_deterministic(built):
 def test_the_acot_chain_is_disabled_rather_than_dangling(built):
     """Its four technologies need ACOT's, and ``has_acot`` is false without ACOT.
 
-    They are disabled, so nothing left in the graph names a missing technology.
+    They are disabled, so the only missing technologies left in the graph are
+    the nomad and wilderness alternatives Gigastructures names but nothing defines.
     """
     referenced = {target for targets in built.dangling.values() for target in targets}
-    assert referenced == set()
+    assert referenced == {
+        f"tech_{kind}_{resource}"
+        for kind in ("nomads_mine", "wilderness")
+        for resource in ("volatile_motes", "rare_crystals", "exotic_gases")
+    }
     assert "giga_tech_amb_supertensiles_acot_delta" not in built.records
 
 

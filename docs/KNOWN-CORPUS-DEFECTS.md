@@ -139,7 +139,7 @@ come back, and tag them "Unknown" if not.
 
 ### 7. Gigastructures: the supermassive E.H.O.F. technology is unfinished
 
-`giga_tech_blokkat_supermassive_ehof_activate`, new in `giga_13_blokkat.txt`,
+`giga_tech_blokkat_supermassive_ehof_activate`, new in `giga_12_blokkat.txt`,
 has `potential = { has_country_flag = blokkat_flee_ehof_activate_possible }`,
 and nothing in the load order sets that flag. It also has no localisation entry
 and no icon of its own, and its `prereqfor_desc` reuses
@@ -151,3 +151,19 @@ and has no card, which is why the name and icon are not missed. The
 localisation test asserts a name only for technologies that reach the tree, and
 records this one as the single known gap. If the flag starts being set
 upstream, the technology appears and will need a name, an icon and a tag.
+
+## Verified 2026-11-23 — Stellaris 4.6.0, Gigastructures 3.41.0 at 1c6684f
+
+### 8. Gigastructures: mining technologies name nomad and wilderness variants nothing defines
+
+`giga_tech_automated_stripmine_2`, `giga_tech_crystal_megabore` and
+`giga_tech_succ` (`giga_03_engineering.txt`) each accept any one of a strategic
+resource's technologies in an `OR` among their prerequisites, and that list
+names `tech_nomads_mine_<resource>` and `tech_wilderness_<resource>` for volatile
+motes, rare crystals and exotic gases. Neither vanilla 4.6.0 nor Gigastructures
+defines any of the six.
+
+**Handling:** none needed. Each `OR` still holds the real vanilla technologies,
+so the missing alternatives are dropped and the three technologies keep their
+other routes. `tests/test_records.py` and `tests/test_graph.py` pin the six
+names; if a later vanilla patch adds them, delete them from both.

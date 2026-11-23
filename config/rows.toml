@@ -31,7 +31,7 @@ so it is listed explicitly."""
 key = "sirens"
 name = "Sirenalia"
 colour = "#b07be0"
-source_files = ["giga_18_eawaf.txt"]
+source_files = ["giga_16_eawaf.txt"]
 note = """Confident. EAWAF is Gigastructures' internal name for the Sirenalia
 chain; the disenchanter technologies are all here."""
 
@@ -48,7 +48,7 @@ has no card."""
 key = "blokkats"
 name = "The Blokkats"
 colour = "#52d97e"
-source_files = ["giga_13_blokkat.txt"]
+source_files = ["giga_12_blokkat.txt"]
 categories = ["blokkats", "blokkatsprotocols"]
 note = """Confident. The file and the dedicated categories agree.
 Note this is the one group that already spanned all three research areas, so a

@@ -26,11 +26,11 @@ from pipeline.unlocks import Route, RouteKind
 
 #: Technologies declaring at least one gate. Psionic Shields has none: its one
 #: tradition route is the pre-Shroud Psionics tree, which owning the DLC replaces.
-GATED_COUNT = 113
+GATED_COUNT = 107
 #: Of those, gated by at least one ascension perk.
-PERK_GATED_COUNT = 91
+PERK_GATED_COUNT = 85
 #: Technologies with no gate of their own that inherit one through what they need.
-INHERITED_ONLY_COUNT = 43
+INHERITED_ONLY_COUNT = 44
 
 
 def perk(key: str) -> Condition:
@@ -360,17 +360,10 @@ def test_gate_counts(built, effective):
 
 
 @pytest.mark.corpus
-def test_the_vat_needs_wonders_and_one_ascension_route(built):
-    """The reported case: genetic ascension or Mechromancy, alongside Galactic Wonders."""
-    gates = built.gates["giga_tech_the_vat"]
-    assert len(gates) == 2
-    wonders, route = gates
+def test_the_vat_needs_galactic_wonders_only(built):
+    """Gigastructures 3.41 dropped its genetic ascension or Mechromancy requirement."""
+    (wonders,) = built.gates["giga_tech_the_vat"]
     assert all(c.key.startswith("ap_galactic_wonders") for c in wonders.conditions)
-    assert set(route.conditions) == {
-        Condition("trigger", "has_genetically_ascended"),
-        Condition("tradition", "tr_genetics_finish_extra_traits"),
-        perk("ap_mechromancy"),
-    }
 
 
 @pytest.mark.corpus
@@ -409,14 +402,6 @@ def test_the_fallen_empire_cap_is_not_reported_as_a_cosmogenesis_gate(built):
     conditions = {c for g in built.gates["tech_fe_administration_1"] for c in g.conditions}
     assert perk("ap_cosmogenesis") not in conditions
     assert perk("ap_enigmatic_engineering") in conditions
-
-
-@pytest.mark.corpus
-def test_interstellar_habitat_accepts_the_void_dweller_origins(built):
-    """``is_void_dweller_empire`` ORs Voidborne with two origins; Voidborne alone was wrong."""
-    conditions = {c for g in built.gates["giga_tech_interstellar_habitat"] for c in g.conditions}
-    assert perk("ap_voidborn") in conditions
-    assert Condition("origin", "origin_void_dwellers") in conditions
 
 
 @pytest.mark.corpus

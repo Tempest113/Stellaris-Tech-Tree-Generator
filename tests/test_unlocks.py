@@ -47,6 +47,7 @@ TAG_COUNTS = {
     "Combat": 1,
     "Flusion Operation": 1,
     "Megastructure": 1,
+    "Ideology": 1,
     "Paragon": 1,
     "Shroud": 1,
     "Starting": 1,

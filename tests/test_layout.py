@@ -14,10 +14,10 @@ from pipeline.layout import COLUMN_CONSTRAINT_KINDS, RowKey, check_invariants
 from pipeline.loadorder import LoadOrder, base_game_source, mod_source
 from pipeline.records import Extraction, build_record, extract
 
-SLOT_COUNT = 974
+SLOT_COUNT = 975
 ROW_COUNT = 16
 #: Technologies pushed past their own tier band by a higher-tier prerequisite.
-SPILLED_COUNT = 25
+SPILLED_COUNT = 23
 #: Potential-gate edges that end up running right-to-left. Permitted: each
 #: arrives from a higher tier, so it is an alternative route in rather than a
 #: step along a chain. Every other gate constrains its column like a prerequisite.
